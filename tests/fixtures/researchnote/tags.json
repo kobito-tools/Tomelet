@@ -1,0 +1,11 @@
+{
+  "activityTypes": [
+    { "id": "note", "name": "メモ", "description": "架空", "color": "#416B7C", "order": 1 }
+  ],
+  "categories": [
+    { "id": "topic", "label": "話題", "description": "架空", "order": 1 }
+  ],
+  "tags": [
+    { "id": "sample", "name": "サンプル", "category": "topic", "description": "架空", "order": 1 }
+  ]
+}

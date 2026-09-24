@@ -1,0 +1,15 @@
+[
+  {
+    "id": "paper-sample",
+    "title": "Fictional paper",
+    "authors": ["Example Author"],
+    "year": 2025,
+    "venue": "Example Venue",
+    "status": "unread",
+    "priority": 1,
+    "tags": ["sample"],
+    "takeaway": "架空の内容です。",
+    "url": "https://example.com/paper",
+    "relatedLogs": []
+  }
+]

@@ -1,0 +1,15 @@
+[
+  {
+    "id": "log-sample-1",
+    "timestamp": "2026-01-02",
+    "people": ["自分"],
+    "title": "架空の検討記録",
+    "summary": "公開用の架空データです。",
+    "kind": "note",
+    "tags": ["sample"],
+    "related": [],
+    "paperIds": [],
+    "files": [{ "path": "Samples/example.txt", "action": "edited", "note": "架空ファイル" }],
+    "links": []
+  }
+]

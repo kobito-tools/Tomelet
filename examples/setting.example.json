@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "port": 3174,
+  "fileRoots": [
+    {
+      "id": "documents",
+      "displayName": "Documents",
+      "absolutePath": "/replace/with/your/private/path"
+    }
+  ]
+}

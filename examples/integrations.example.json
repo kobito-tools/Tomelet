@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "clients": [
+    {
+      "id": "activity-logger",
+      "name": "Activity Logger",
+      "token": "replace-with-a-random-private-token",
+      "permissions": ["activity:write"]
+    }
+  ]
+}

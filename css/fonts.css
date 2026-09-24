@@ -1,0 +1,16 @@
+@font-face{font-family:"TickTockTome Noto Sans JP";src:url("/assets/fonts/NotoSansJP.ttf") format("truetype");font-style:normal;font-weight:100 900;font-display:swap}
+@font-face{font-family:"TickTockTome Rounded M+";src:url("/assets/fonts/RoundedMplus1c-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"TickTockTome Shippori Mincho";src:url("/assets/fonts/ShipporiMincho-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"TickTockTome Yomogi";src:url("/assets/fonts/Yomogi-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+
+:root{--font-ui:"TickTockTome Noto Sans JP",sans-serif;--font-display:"TickTockTome Shippori Mincho",serif;--font-code:ui-monospace,"SFMono-Regular",Consolas,monospace}
+html[data-font="modern"]{--font-ui:"TickTockTome Noto Sans JP",sans-serif;--font-display:"TickTockTome Noto Sans JP",sans-serif}
+html[data-font="rounded"]{--font-ui:"TickTockTome Rounded M+",sans-serif;--font-display:"TickTockTome Rounded M+",sans-serif}
+html[data-font="handwriting"]{--font-ui:"TickTockTome Yomogi",sans-serif;--font-display:"TickTockTome Yomogi",sans-serif}
+html[data-font="mincho"]{--font-ui:"TickTockTome Shippori Mincho",serif;--font-display:"TickTockTome Shippori Mincho",serif}
+
+body,button,input,select,textarea{font-family:var(--font-ui)!important}
+h1,h2,h3,h4,h5,h6,.brand strong,.section-heading h1,.drawer h2,.home-summary-title h2,.paper-spine-info>strong,.book-spine-info>strong,.help-card h2,.help-intro strong,.action-choice-list strong,.timer-modal h2{font-family:var(--font-display)!important}
+code,kbd,pre,.eyebrow,.section-number{font-family:var(--font-code)!important}
+
+.font-preview-classic b{font-family:"TickTockTome Shippori Mincho",serif}.font-preview-modern b{font-family:"TickTockTome Noto Sans JP",sans-serif}.font-preview-rounded b{font-family:"TickTockTome Rounded M+",sans-serif}.font-preview-handwriting b{font-family:"TickTockTome Yomogi",sans-serif}.font-preview-mincho b{font-family:"TickTockTome Shippori Mincho",serif}

@@ -1,0 +1,28 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Runtime and private data (defense in depth; defaults live outside this repository)
+data/
+backups/
+exports/
+runtime/
+uploads/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+*.backup
+setting.json
+integrations.json
+*.log
+
+# Generated application bundles and local dependencies
+TickTockTome.app/
+DailyLog.app/
+vendor/katex/
+
+# Test and coverage output
+coverage/
+.test-output/
