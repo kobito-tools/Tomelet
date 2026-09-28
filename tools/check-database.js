@@ -2,10 +2,10 @@
 
 const path = require("node:path");
 const { openDatabase } = require("../scripts/database/connection.js");
-const { ensurePrivateDirectories, pathsFor } = require("../scripts/settings.js");
+const { activePaths, ensurePrivateDirectories } = require("../scripts/settings.js");
 
 const projectRoot = path.resolve(__dirname, "..");
-const runtimePaths = pathsFor();
+const runtimePaths = activePaths();
 ensurePrivateDirectories(runtimePaths);
 const database = openDatabase(runtimePaths.databasePath, projectRoot);
 const integrity = database.prepare("PRAGMA integrity_check").all();

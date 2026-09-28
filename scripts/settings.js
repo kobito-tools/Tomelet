@@ -8,7 +8,17 @@ const APP_DIRECTORY_NAME = "TickTockTome";
 // 旧名DailyLogで作られた個人データ領域・DBは、新しい名前のものが無い限りそのまま使う（データは移動しない）。
 const LEGACY_DIRECTORY_NAME = "DailyLog";
 const DATABASE_FILE_NAME = "ticktocktome.sqlite3";
+// 基準パス直下に作るアプリ専用データフォルダ。利用者のフォルダ名と重ならない隠しフォルダにする。
+const DATASET_DIRECTORY_NAME = ".TickTockTome";
 const LEGACY_DATABASE_FILE_NAME = "dailylog.sqlite3";
+// HOMEは白、設定・使い方は無彩色、Todo〜文書はナビの並び順に虹色（赤→紫）。
+const DEFAULT_BATTERY_COLORS = Object.freeze({
+  dashboard: "#ffffff", todo: "#e06666", goals: "#ec9a4a", calendar: "#e2c044",
+  analysis: "#a3c255", worktree: "#56b27a", files: "#4db3be", books: "#5b8dd9",
+  papers: "#9573cf", settings: "#96968f", help: "#96968f",
+});
+// キャラクターの歩く速さ（px/秒）。
+const CHARACTER_SPEEDS = Object.freeze([80, 150, 240, 400]);
 
 function preferCurrent(current, legacy) {
   return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current;
@@ -76,20 +86,74 @@ function writeJsonAtomic(filePath, value) {
   }
 }
 
+const THEME_DEFAULTS = Object.freeze({ background: "#f4f1ea", surface: "#eeebe4", accent: "#e3654f", text: "#22282d" });
+const FONT_PRESETS = Object.freeze(["classic", "modern", "rounded", "handwriting", "mincho"]);
+
+// 配色・フォント・タグ表示は基準パスのデータセットへ保存する共有設定。
+function normalizeSharedSettings(saved = {}) {
+  const theme = Object.fromEntries(Object.entries(THEME_DEFAULTS).map(([key, fallback]) => [key, /^#[0-9a-fA-F]{6}$/.test(saved.theme?.[key] || "") ? saved.theme[key].toLowerCase() : fallback]));
+  const themeMode = saved.themeMode === "manual" ? "manual" : "auto";
+  const batteryColors = Object.fromEntries(Object.entries(DEFAULT_BATTERY_COLORS).map(([view, fallback]) => [view, /^#[0-9a-fA-F]{6}$/.test(saved.batteryColors?.[view] || "") ? saved.batteryColors[view].toLowerCase() : fallback]));
+  const hiddenTagIds = Array.isArray(saved.hiddenTagIds) ? [...new Set(saved.hiddenTagIds.filter((id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id)))] : [];
+  const fontPreset = FONT_PRESETS.includes(saved.fontPreset) ? saved.fontPreset : "classic";
+  const illumination = saved.illumination !== false;
+  const characterSpeed = CHARACTER_SPEEDS.includes(saved.characterSpeed) ? saved.characterSpeed : 150;
+  return { theme, themeMode, batteryColors, fontPreset, hiddenTagIds, illumination, characterSpeed };
+}
+
+function normalizeLocalLlm(saved) {
+  const llm = saved && typeof saved === "object" ? saved : {};
+  return { enabled: Boolean(llm.enabled), analysisMode: ["off", "manual", "auto"].includes(llm.analysisMode) ? llm.analysisMode : "off", executablePath: typeof llm.executablePath === "string" ? llm.executablePath : "", modelPath: typeof llm.modelPath === "string" ? llm.modelPath : "", pdfTextPath: typeof llm.pdfTextPath === "string" ? llm.pdfTextPath : "" };
+}
+
+// schemaVersion 1の種類別基準パス・保存先は、基準パスへ移行するまで legacy として保持する。
+function legacyFrom(saved, paths) {
+  if (saved.legacy && typeof saved.legacy === "object") return saved.legacy;
+  if ((saved.schemaVersion || 1) >= 2) return null;
+  const fileRoots = Array.isArray(saved.fileRoots) ? saved.fileRoots.filter((root) => root && typeof root.id === "string" && typeof root.absolutePath === "string") : [];
+  // 旧「まなびの本」だけを設定していた環境でも、統合後の「書籍」を引き継ぐ。
+  const legacyTextbookRoot = fileRoots.find((root) => root.id === "textbooks");
+  if (legacyTextbookRoot && !fileRoots.some((root) => root.id === "books")) fileRoots.push({ ...legacyTextbookRoot, id: "books", displayName: "書籍" });
+  const contentDirectory = typeof saved.contentDirectory === "string" && path.isAbsolute(saved.contentDirectory) ? path.resolve(saved.contentDirectory) : paths.dataDirectory;
+  return { fileRoots, contentDirectory, ...normalizeSharedSettings(saved) };
+}
+
+// このPCで開いたことのある基準パスの一覧。画面右上から切り替えるために使う。
+function normalizeKnownDatasets(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.filter((entry) => entry && typeof entry.basePath === "string" && path.isAbsolute(entry.basePath) && !seen.has(entry.basePath) && seen.add(entry.basePath))
+    .slice(0, 30)
+    .map((entry) => ({ basePath: path.resolve(entry.basePath), datasetId: typeof entry.datasetId === "string" ? entry.datasetId.slice(0, 60) : "", lastOpenedAt: typeof entry.lastOpenedAt === "string" ? entry.lastOpenedAt : null }));
+}
+
 function loadSettings(paths) {
   const saved = readJsonIfPresent(paths.settingPath) || {};
   const port = Number(process.env.TICKTOCKTOME_PORT || process.env.DAILYLOG_PORT || saved.port || 3174);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("ポート番号は1024〜65535の整数にしてください。");
-  const fileRoots = Array.isArray(saved.fileRoots) ? saved.fileRoots.filter((root) => root && typeof root.id === "string" && typeof root.absolutePath === "string") : [];
   const revision = Number.isSafeInteger(saved.revision) && saved.revision >= 1 ? saved.revision : 1;
-  const defaults = { background: "#f4f1ea", surface: "#eeebe4", accent: "#e3654f", text: "#22282d" };
-  const theme = Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => [key, /^#[0-9a-fA-F]{6}$/.test(saved.theme?.[key] || "") ? saved.theme[key].toLowerCase() : fallback]));
-  const contentDirectory = typeof saved.contentDirectory === "string" && path.isAbsolute(saved.contentDirectory) ? path.resolve(saved.contentDirectory) : paths.dataDirectory;
-  const hiddenTagIds = Array.isArray(saved.hiddenTagIds) ? [...new Set(saved.hiddenTagIds.filter((id) => typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id)))] : [];
-  const fontPreset = ["classic","modern","rounded","handwriting","mincho"].includes(saved.fontPreset) ? saved.fontPreset : "classic";
-  const llm=saved.localLlm&&typeof saved.localLlm==="object"?saved.localLlm:{};
-  const localLlm={enabled:Boolean(llm.enabled),analysisMode:["off","manual","auto"].includes(llm.analysisMode)?llm.analysisMode:"off",executablePath:typeof llm.executablePath==="string"?llm.executablePath:"",modelPath:typeof llm.modelPath==="string"?llm.modelPath:"",pdfTextPath:typeof llm.pdfTextPath==="string"?llm.pdfTextPath:""};
-  return { schemaVersion: 1, revision, port, fileRoots, theme, fontPreset, localLlm, contentDirectory, hiddenTagIds };
+  const legacy = legacyFrom(saved, paths);
+  const basePath = typeof saved.basePath === "string" && path.isAbsolute(saved.basePath) ? path.resolve(saved.basePath) : null;
+  const machineId = typeof saved.machineId === "string" && /^[A-Za-z0-9-]{8,80}$/.test(saved.machineId) ? saved.machineId : null;
+  // データセットを開くまでは、旧設定の外見を表示に使う。
+  const shared = normalizeSharedSettings(legacy || {});
+  return { schemaVersion: 2, revision, port, machineId, basePath, knownDatasets: normalizeKnownDatasets(saved.knownDatasets), language: saved.language === "en" ? "en" : "ja", localLlm: normalizeLocalLlm(saved.localLlm), legacy, datasetId: null, fileRoots: [], ...shared };
 }
 
-module.exports = { databasePathIn, defaultDataDirectory, ensurePrivateDirectories, loadSettings, pathsFor, readJsonIfPresent, writeJsonAtomic };
+// PC固有設定（setting.json）に残すのは基準パスとPCに依存する項目だけ。
+function machineRecord(settings) {
+  return { schemaVersion: 2, revision: settings.revision, port: settings.port, machineId: settings.machineId, basePath: settings.basePath, knownDatasets: settings.knownDatasets || [], language: settings.language === "en" ? "en" : "ja", localLlm: settings.localLlm, ...(settings.legacy ? { legacy: settings.legacy } : {}) };
+}
+
+function datasetDirectoryFor(basePath) {
+  return path.join(basePath, DATASET_DIRECTORY_NAME);
+}
+
+// 保守ツール用：現在の基準パスのデータセット、未移行なら旧保存先のパスを返す。
+function activePaths(machinePaths = pathsFor()) {
+  const settings = loadSettings(machinePaths);
+  if (settings.basePath) return pathsFor(machinePaths.dataDirectory, datasetDirectoryFor(settings.basePath));
+  return pathsFor(machinePaths.dataDirectory, settings.legacy?.contentDirectory || machinePaths.dataDirectory);
+}
+
+module.exports = { CHARACTER_SPEEDS, DATASET_DIRECTORY_NAME, DEFAULT_BATTERY_COLORS, activePaths, databasePathIn, datasetDirectoryFor, defaultDataDirectory, ensurePrivateDirectories, loadSettings, machineRecord, normalizeLocalLlm, normalizeSharedSettings, pathsFor, readJsonIfPresent, writeJsonAtomic };

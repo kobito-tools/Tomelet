@@ -31,7 +31,7 @@ async function serverState() {
 }
 
 async function stopOutdatedServer() {
-  if (!existsSync(runtimePaths.pidPath)) throw new Error("別のTick Tock Tomeサーバーが動作中です。終了してから開き直してください。");
+  if (!existsSync(runtimePaths.pidPath)) throw new Error("別のTomeletサーバーが動作中です。終了してから開き直してください。");
   const { pid } = JSON.parse(readFileSync(runtimePaths.pidPath, "utf8"));
   if (!Number.isInteger(pid) || pid <= 0) throw new Error("終了情報が正しくありません。");
   if (process.platform === "win32") spawnSync(path.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe"), ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, shell: false });
@@ -57,6 +57,6 @@ async function waitUntilReady() {
   closeSync(log);
   writeFileSync(runtimePaths.pidPath, `${JSON.stringify({ pid: server.pid, startedAt: new Date().toISOString() }, null, 2)}\n`, { mode: 0o600 });
   if (await waitUntilReady()) { if (openBrowserOnReady) openBrowser(); return; }
-  console.error(`Tick Tock Tomeを起動できませんでした。診断ログ: ${runtimePaths.runtimeLogPath}`);
+  console.error(`Tomeletを起動できませんでした。診断ログ: ${runtimePaths.runtimeLogPath}`);
   process.exitCode = 1;
 })().catch((error) => { console.error(error.message); process.exitCode = 1; });

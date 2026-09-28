@@ -1,6 +1,6 @@
 "use strict";
 
-// Tick Tock Tomeと連携する、別リポジトリで公開している手元のアプリ。
+// Tomeletと連携する、別リポジトリで公開している手元のアプリ。
 // 連携用トークンは他アプリと同じくconfig/integrations.jsonへ保存し、権限はここで固定する。
 const { randomBytes } = require("node:crypto");
 const { readJsonIfPresent, writeJsonAtomic } = require("../settings.js");

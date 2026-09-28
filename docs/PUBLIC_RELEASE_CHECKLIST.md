@@ -23,7 +23,7 @@ git diff --cached
 `!!`はGitから除外されている項目です。次が`!!`側にあることを確認します。
 
 - `.test-output/`
-- `TickTockTome.app/`
+- `Tomelet.app/`
 - `.DS_Store`
 - DB、バックアップ、設定、ログがソースフォルダ内へ誤って置かれた場合の該当ファイル
 

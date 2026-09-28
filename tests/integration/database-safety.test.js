@@ -52,3 +52,28 @@ test("手動バックアップも元DBと独立して読み戻せる", async () 
     finally { restored.close(); }
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("旧まなびの本を書籍へ移行し、PDFの旧基準パスは保持する", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ticktocktome-book-merge-"));
+  const migrations = path.join(directory, "migrations");
+  fs.cpSync(sourceMigrations, migrations, { recursive: true });
+  const finalMigration = path.join(migrations, "016_merge_book_categories.sql");
+  const finalSql = fs.readFileSync(finalMigration, "utf8");
+  fs.rmSync(finalMigration);
+  const database = new DatabaseSync(path.join(directory, "ticktocktome.sqlite3"));
+  try {
+    migrate(database, migrations);
+    const now = new Date().toISOString();
+    database.prepare("INSERT INTO library_items(id,item_type,title,authors_json,reading_status,priority,takeaway_markdown,url,created_at,updated_at,source_root_id,source_relative_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)").run("legacy-textbook", "textbook", "旧教科書", "[]", "unread", 3, "", "", now, now, "textbooks", "study/legacy.pdf");
+    fs.writeFileSync(finalMigration, finalSql);
+    migrate(database, migrations);
+    const item = database.prepare("SELECT item_type AS itemType, source_root_id AS sourceRootId, source_relative_path AS sourceRelativePath, revision FROM library_items WHERE id = ?").get("legacy-textbook");
+    assert.equal(item.itemType, "book");
+    assert.equal(item.sourceRootId, "textbooks");
+    assert.equal(item.sourceRelativePath, "study/legacy.pdf");
+    assert.equal(item.revision, 2);
+  } finally {
+    database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

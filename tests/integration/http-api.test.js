@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const { createDataset } = require("../../scripts/dataset.js");
 
 const projectRoot = path.resolve(__dirname, "../..");
 
@@ -38,7 +39,10 @@ test("画面用APIと認証付き連携APIの境界を守る", async () => {
   const port = await reservePort();
   const configDirectory = path.join(directory, "config");
   fs.mkdirSync(configDirectory, { recursive: true });
-  fs.writeFileSync(path.join(configDirectory, "setting.json"), JSON.stringify({ schemaVersion: 1, port, fileRoots: [] }));
+  const basePath = path.join(directory, "base");
+  fs.mkdirSync(basePath);
+  createDataset(basePath, { datasetId: "テスト" });
+  fs.writeFileSync(path.join(configDirectory, "setting.json"), JSON.stringify({ schemaVersion: 2, port, machineId: "test-machine-0001", basePath: fs.realpathSync(basePath) }));
   fs.writeFileSync(path.join(configDirectory, "integrations.json"), JSON.stringify({ schemaVersion: 1, clients: [{ id: "command-test", name: "Command Test", token: "test-token-not-for-production", permissions: ["journal:read", "journal:write", "search:read"] }, { id: "activity-test", name: "Activity Test", token: "activity-token-not-for-production", permissions: ["activity:write"] }] }));
   const child = spawn(process.execPath, [path.join(projectRoot, "scripts/server.js")], {
     cwd: projectRoot,
@@ -65,7 +69,7 @@ test("画面用APIと認証付き連携APIの境界を守る", async () => {
     const uploaded = await fetch(`${base}/api/v1/uploads`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ name: "sample.pdf", mimeType: "application/pdf", base64: Buffer.from("%PDF-1.4\ntest").toString("base64") }) });
     assert.equal(uploaded.status, 201);
     const uploadItem = (await uploaded.json()).item;
-    assert.equal(fs.existsSync(path.join(directory, "uploads", uploadItem.storedName)), true);
+    assert.equal(fs.existsSync(path.join(basePath, ".TickTockTome", "uploads", uploadItem.storedName)), true);
     const intake = await fetch(`${base}/api/v1/library:upload-pdf`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ itemType: "book", uploadId: uploadItem.id }) });
     assert.equal(intake.status, 201);
     assert.equal((await intake.json()).item.intakeStatus, "uploaded");
@@ -77,6 +81,6 @@ test("画面用APIと認証付き連携APIの境界を守る", async () => {
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));
-    fs.rmSync(directory, { recursive: true, force: true });
+    fs.rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

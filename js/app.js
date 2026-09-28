@@ -5,7 +5,7 @@ const api = window.TickTockTomeApi;
 const localDate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const shiftDate = (value, amount) => { const date = new Date(`${value}T12:00:00`); date.setDate(date.getDate() + amount); return localDate(date); };
 const weekStart = (value = localDate()) => { const date = new Date(`${value}T12:00:00`); return shiftDate(value, -((date.getDay() + 6) % 7)); };
-const state = { view: "dashboard", query: "", bootstrap: null, journals: [], timeline: [], calendar: [], calendarActions: [], calendarTodos: [], calendarMode: "month", calendarDay: localDate(), weekDate: new Date(), analysisDate: localDate(), analysis: null, workTree: [], files: [], fileTotal: 0, fileQuery: "", fileSort: "name", fileTagIds: new Set(), homeLibrary: [], libraryItems: [], goalFiles: [], goalLibraryItems: [], libraryMode: "board", month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), goalDate: localDate(), dailyActions: [], recordActions: [], todayActions: [], recentActions: [], actionDrafts: [], graphTags: new Set(), hiddenTagIds: new Set(), tagPanelOpen: false, search: { journals: [], activities: [], files: [], library: [] }, trash: [], selected: null, selectedFile: null, selectedLibrary: null, selectedAction: null, actionChooser: false, actionResourceQueries:{book:"",textbook:"",paper:""}, actionTagId: "", actionFileQuery: "", actionFileSort: "latest", notice: "", rootCheckDismissed: false };
+const state = { view: "dashboard", query: "", bootstrap: null, journals: [], timeline: [], calendar: [], calendarActions: [], calendarTodos: [], calendarMode: "month", calendarDay: localDate(), weekDate: new Date(), analysisDate: localDate(), analysis: null, workTree: [], files: [], fileTotal: 0, fileQuery: "", fileSort: "name", fileTagIds: new Set(), homeLibrary: [], libraryItems: [], goalFiles: [], goalLibraryItems: [], libraryMode: "board", month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), goalDate: localDate(), dailyActions: [], recordActions: [], todayActions: [], recentActions: [], actionDrafts: [], graphTags: new Set(), hiddenTagIds: new Set(), tagPanelOpen: false, search: { journals: [], activities: [], files: [], library: [] }, trash: [], selected: null, selectedFile: null, selectedLibrary: null, selectedAction: null, actionChooser: false, actionResourceQueries:{book:"",paper:""}, libraryQuery:{book:"",paper:""}, librarySort:{book:"recommended",paper:"recommended"}, libraryTagIds:{book:new Set(),paper:new Set()}, libraryStatusFilter:{book:"",paper:""}, actionTagId: "", actionFileQuery: "", actionFileSort: "latest", notice: "", rootCheckDismissed: false };
 const esc = (value = "") => String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 const renderMarkup = (value = "") => window.ResearchMarkup?.render(value) || `<p>${esc(value)}</p>`;
 const plain = (value = "") => window.ResearchMarkup?.toPlainText(value) || String(value);
@@ -25,15 +25,13 @@ function decorateActionForm(form) {
 
 function updateResourceLists(form) {
   form.querySelector('.action-file-browser-host').innerHTML=actionFileBrowserContent(state.selectedAction?.managedFileIds || []);
-  for(const type of ['book','textbook','paper']){const host=form.querySelector(`[data-resource-list="${type}"]`);if(!host)continue;const query=(state.actionResourceQueries[type]||'').toLocaleLowerCase('ja');const entries=state.goalLibraryItems.filter(t=>t.itemType===type).filter(visibleByTags).filter(t=>(!state.actionTagId||t.tagIds.includes(state.actionTagId))&&(!query||`${t.title} ${t.authors.join(' ')}`.toLocaleLowerCase('ja').includes(query)));host.innerHTML=entries.map(t=>`<label class="goal-link"><input type="checkbox" name="libraryIds" value="${esc(t.id)}" ${(state.selectedAction?.libraryIds||[]).includes(t.id)?'checked':''}><span><strong>${esc(t.title)}</strong><small>${esc(t.authors.join(', ')||'著者未入力')}</small></span></label>`).join('')||'<p class="muted">該当する資料はありません。</p>';}
+  for(const type of ['book','paper']){const host=form.querySelector(`[data-resource-list="${type}"]`);if(!host)continue;const query=(state.actionResourceQueries[type]||'').toLocaleLowerCase('ja');const entries=state.goalLibraryItems.filter(t=>t.itemType===type).filter(visibleByTags).filter(t=>(!state.actionTagId||t.tagIds.includes(state.actionTagId))&&(!query||`${t.title} ${t.authors.join(' ')}`.toLocaleLowerCase('ja').includes(query)));host.innerHTML=entries.map(t=>`<label class="goal-link"><input type="checkbox" name="libraryIds" value="${esc(t.id)}" ${(state.selectedAction?.libraryIds||[]).includes(t.id)?'checked':''}><span><strong>${esc(t.title)}</strong><small>${esc(t.authors.join(', ')||'著者未入力')}</small></span></label>`).join('')||'<p class="muted">該当する資料はありません。</p>';}
 }
 
 function decorateLibraryView() {
   const zone=app.querySelector('[data-pdf-drop]');if(!zone)return;
-  const rootId={book:"books",textbook:"textbooks",paper:"papers"}[zone.dataset.pdfDrop];
-  const roots=state.bootstrap.fileRoots.filter(t=>t.id===rootId);
   zone.querySelector('input')?.remove();
-  zone.insertAdjacentHTML('beforeend',`${roots.length?`<select class="library-root-select" aria-label="PDFの基準フォルダ">${roots.map(t=>`<option value="${esc(t.id)}">${esc(t.displayName)}</option>`).join('')}</select><button type="button" class="secondary" data-reference-pdf="${esc(zone.dataset.pdfDrop)}">基準フォルダ内のPDFを選択</button>`:'<button type="button" class="secondary" data-view="settings">先に基準パスを設定</button>'}`);
+  zone.insertAdjacentHTML('beforeend',`<button type="button" class="secondary" data-reference-pdf="${esc(zone.dataset.pdfDrop)}">基準パス内のPDFを選択</button>`);
   zone.querySelector('span').textContent='PDF本体はコピーせず、基準パスからの相対パスだけを登録します';
 }
 
@@ -47,20 +45,29 @@ function dashboardView() {
   const libraries = state.homeLibrary.filter(visibleByTags);
   const count = (type) => libraries.filter((item) => item.itemType === type).length;
   const read = (type) => libraries.filter((item) => item.itemType === type && ["read", "cited"].includes(item.status)).length;
-  const summaries = [
-    ["今週のアクション", state.recentActions.filter(visibleByTags).length, "件"],
-    ["ファイル", state.fileTotal, "件"],
-    ["くらしの本", `${read("book")} / ${count("book")}`, "読了 / 登録"],
-    ["まなびの本", `${read("textbook")} / ${count("textbook")}`, "読了 / 登録"],
-    ["論文", `${read("paper")} / ${count("paper")}`, "読了 / 登録"],
+  const colors = { ...defaultBatteryColors, ...(state.bootstrap?.batteryColors || {}) };
+  const metrics = [
+    ["goals", "今週のアクション", state.recentActions.filter(visibleByTags).length, "件"],
+    ["files", "ファイル", state.fileTotal || 0, "件"],
+    ["books", "書籍", read("book"), "読了 / 登録", count("book")],
+    ["papers", "文書", read("paper"), "読了 / 登録", count("paper")],
   ];
   const today=localDate(),weekEnd=shiftDate(today,7);
-  const dueTodos=(window.TickTockTomeTodo?.items()||[]).filter(visibleByTags).filter(item=>item.dueDate&&item.dueDate<=weekEnd).slice(0,7);
+  const dueTodos=(window.TickTockTomeTodo?.items()||[]).filter(visibleByTags).filter(item=>item.dueDate&&item.dueDate<=weekEnd).slice(0,6);
   const dueText=(date)=>{const days=Math.round((new Date(`${date}T12:00:00`)-new Date(`${today}T12:00:00`))/86400000);return days<0?`${Math.abs(days)}日超過`:days===0?'今日まで':`あと${days}日`;};
-  return `<div class="page-heading"><div><p class="eyebrow">PERSONAL LOCAL ARCHIVE</p><h1>HOME</h1><p>日記・作業履歴・書籍・文献・関連ファイルを、ローカル管理</p></div><div class="date-card"><span>TODAY</span><strong>${now.getDate()}</strong><small>${now.getFullYear()}<br>${now.getMonth() + 1}月</small></div></div>
-  <section class="home-summary"><div class="home-summary-title"><p class="eyebrow">WEEK & ARCHIVE</p><h2>今週と保管資料</h2></div><div class="home-summary-grid">${summaries.map(([label, value, unit]) => `<article><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(unit)}</small></article>`).join("")}</div></section>
-  <section class="home-due-todos"><div class="panel-title"><div><span class="section-number">01</span><h2>期限が近いTodo</h2></div><button data-view="todo">Todoを見る →</button></div><div class="home-todo-list">${dueTodos.length?dueTodos.map(item=>`<button data-view="todo"><span><strong>${esc(item.title)}</strong><small>${esc(item.dueDate)} · ${item.progress}%</small></span><b class="${item.dueDate<today?'overdue':''}">${esc(dueText(item.dueDate))}</b></button>`).join(''):'<p class="empty-copy">1週間以内のTodoはありません。</p>'}</div></section>
-  <div class="overview-grid dashboard-overview"><section><div class="panel-title"><div><span class="section-number">02</span><h2>時間割</h2></div><button data-view="goals">時間割を追加 →</button></div><div class="home-goal-list">${state.todayActions.filter(visibleByTags).length ? state.todayActions.filter(visibleByTags).slice(0, 5).map((item) => `<button class="home-goal" data-action-edit="${esc(item.id)}"><time>${esc(item.startTime)}–${esc(item.endTime)}</time><span><strong>${esc(item.action)}</strong><small>${esc(item.location || "場所未設定")}</small></span><b>${item.progress}%</b></button>`).join("") : '<p class="empty-copy">今日の時間割はまだありません。</p>'}</div></section><section><div class="panel-title"><div><span class="section-number">03</span><h2>活動分析</h2></div><button data-view="analysis">分析を見る →</button></div><div class="journal-list">${recent.length ? recent.map(journalCard).join("") : '<p class="empty-copy">アクションを実行すると、自動集計が表示されます。</p>'}</div></section></div>`;
+  const weekday = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"][now.getDay()];
+  const weekdayJa = "日月火水木金土"[now.getDay()];
+  const actions = state.todayActions.filter(visibleByTags).slice(0, 5);
+  let cardIndex = 5;
+  const card = (number, title, action, body, extra = "") => `<section class="home-card ${extra}" style="--i:${cardIndex++}"><header><div><span>${number}</span><h2>${title}</h2></div>${action}</header>${body}</section>`;
+  // ページに入ったときだけ、要素が順に浮かび上がり数値が増える演出を付ける（再描画では繰り返さない）。
+  return `<div class="home ${state.viewEntered ? "home-intro" : ""}"><header class="home-hero" style="--i:0"><div><p class="eyebrow">PERSONAL LOCAL ARCHIVE · ${weekday}</p><h1>HOME</h1><p>${now.getMonth() + 1}月${now.getDate()}日（${weekdayJa}）。やることと記録を、ここから。</p></div><div class="home-date" aria-label="今日の日付"><strong>${now.getDate()}</strong><span>${now.getFullYear()}<br>${String(now.getMonth() + 1).padStart(2, "0")}</span></div></header>
+  <div class="home-metrics">${metrics.map(([view, label, value, unit, total], index) => `<button type="button" class="home-metric" data-view="${view}" style="--metric:${esc(colors[view])};--i:${index + 1}"><span><i></i>${esc(label)}</span><strong><b data-count="${Number(value) || 0}">${state.viewEntered ? 0 : Number(value) || 0}</b>${total === undefined ? "" : `<small>/${Number(total) || 0}</small>`}</strong><small>${esc(unit)}</small></button>`).join("")}</div>
+  <div class="home-bento">
+    ${card("01", "期限が近いTodo", '<button class="home-link" data-view="todo">Todoへ</button>', `<div class="home-todo-list">${dueTodos.length?dueTodos.map(item=>`<button data-view="todo" class="${item.dueDate<today?'is-overdue':''}"><span><strong>${esc(item.title)}</strong><small>${esc(item.dueDate)} · 達成 ${item.progress}%</small></span><b>${esc(dueText(item.dueDate))}</b></button>`).join(''):'<p class="home-empty">1週間以内のTodoはありません。</p>'}</div>`, "home-card-todo")}
+    ${card("02", "今日の時間割", '<button class="home-link" data-view="goals">時間割へ</button>', `<div class="home-schedule">${actions.length ? actions.map((item) => `<button data-action-edit="${esc(item.id)}"><time>${esc(item.startTime)}<small>${esc(item.endTime)}</small></time><span><strong>${esc(item.action)}</strong><small>${esc(item.location || "場所未設定")}</small></span><b>${item.progress}%</b></button>`).join("") : '<p class="home-empty">今日の時間割はまだありません。</p>'}</div>`, "home-card-schedule")}
+    ${card("03", "最近の記録", '<button class="home-link" data-view="analysis">活動分析へ</button>', `<div class="journal-list">${recent.length ? recent.map(journalCard).join("") : '<p class="home-empty">アクションを実行すると、自動集計が表示されます。</p>'}</div>`, "home-card-recent")}
+  </div></div>`;
 }
 
 const minutesBetween=(start,end)=>{const value=timeMinutes(end)-timeMinutes(start);return Number.isFinite(value)&&value>0?value:0;};
@@ -94,10 +101,16 @@ function actionFileBrowserContent(selectedIds = []) {
   return [...folders].map(([folder, entries]) => `<div class="action-file-folder"><h5><span>▱ ${esc(folder)}</span><small>${entries.length}件</small></h5><div>${entries.map((entry) => `<label class="goal-link"><input type="checkbox" name="managedFileIds" value="${esc(entry.id)}" ${selectedIds.includes(entry.id) ? "checked" : ""}><span><strong>${esc(entry.name)}</strong><small>${esc(entry.relativePath)}</small></span></label>`).join("")}</div></div>`).join("") || '<p class="muted action-file-empty">該当するファイルはありません。</p>';
 }
 
+// 添付フォルダ。クリックするとOSのファイル管理アプリ（Finder・エクスプローラー）で開く。Todo画面と同じ見た目。
+function folderChips(paths, removeAttribute) {
+  return paths.length ? `<ul class="folder-chip-list" data-no-translate>${paths.map((folder) => `<li class="folder-chip"><button type="button" data-open-folder="${esc(folder)}" title="${esc(folder)}"><span aria-hidden="true">▱</span><strong>${esc(folder.split("/").at(-1))}</strong><small>${esc(folder.split("/").slice(0, -1).join("/"))}</small></button><button type="button" class="folder-chip-remove" ${removeAttribute}="${esc(folder)}" aria-label="添付を外す" title="添付を外す">×</button><input type="hidden" name="folderPaths" value="${esc(folder)}"></li>`).join("")}</ul>` : '<p class="muted folder-chip-empty">添付したフォルダはありません。</p>';
+}
+window.tickTockTomeFolderChips = folderChips;
+
 function actionFormMarkup(item) {
   const tagGroups = state.bootstrap.tagCategories.map((category) => { const tags = state.bootstrap.tags.filter((tag) => tag.categoryId === category.id); return tags.length ? `<div class="goal-tag-group"><strong>${esc(category.name)}</strong>${tags.map((tag) => `<label class="goal-tag"><input type="checkbox" name="tagIds" value="${esc(tag.id)}" ${(item.tagIds || []).includes(tag.id) ? "checked" : ""}><span>${esc(tag.name)}</span></label>`).join("")}</div>` : ""; }).join("");
   const resource=(type,title)=>`<section class="action-resource-section"><header><div><h4>${title}</h4><small>登録済みから選択</small></div><button type="button" class="secondary" data-action-add-library="${type}">＋ この場で追加</button></header><input type="search" data-action-library-search="${type}" placeholder="題名・著者で検索" value="${esc(state.actionResourceQueries[type]||'')}"><div class="goal-link-list" data-resource-list="${type}"></div></section>`;
-  return `<form class="goal-action-card action-drawer-form" data-action-form data-action-date="${esc(item.actionDate || state.goalDate)}" ${item.id ? `data-action-id="${esc(item.id)}" data-revision="${item.revision}"` : ""}><div class="goal-time-fields"><label><span>開始時間</span><input type="time" name="startTime" required value="${esc(item.startTime || "09:00")}"></label><label><span>終了時間</span><input type="time" name="endTime" required value="${esc(item.endTime || "10:00")}"></label></div><label class="goal-field"><span>アクション</span><input name="action" required maxlength="300" value="${esc(item.action || "")}" placeholder="今日やること"></label><div class="goal-two-fields"><label class="goal-field"><span>場所</span><input name="location" maxlength="300" value="${esc(item.location || "")}" placeholder="自宅、研究室など"></label><label class="goal-field"><span>達成度</span><select name="progress">${[0,25,50,75,100].map((value) => `<option value="${value}" ${Number(item.progress || 0) === value ? "selected" : ""}>${value}%</option>`).join("")}</select></label></div><fieldset class="goal-tags"><legend>タグ</legend>${tagGroups || '<span class="muted">設定画面でタグを追加できます</span>'}</fieldset><div class="resource-tag-filter">共通タグ絞り込み<select data-action-resource-tag><option value="">すべてのタグ</option>${state.bootstrap.tags.map(t=>`<option value="${esc(t.id)}" ${state.actionTagId===t.id?'selected':''}>${esc(t.categoryName)}｜${esc(t.name)}</option>`).join('')}</select></div><section class="action-resource-section"><header><div><h4>ファイル</h4><small>ファイル用基準パス内から選択</small></div><button type="button" class="secondary" data-action-add-file>＋ この場で追加</button></header><div class="action-file-toolbar"><input type="search" data-action-file-search placeholder="名前・フォルダで検索" value="${esc(state.actionFileQuery)}"><select data-action-file-sort><option value="latest" ${state.actionFileSort === "latest" ? "selected" : ""}>最新順</option><option value="name" ${state.actionFileSort === "name" ? "selected" : ""}>名前順</option></select></div><div class="action-file-browser-host">${actionFileBrowserContent(item.managedFileIds || [])}</div></section>${resource('book','くらしの本')}${resource('textbook','まなびの本')}${resource('paper','論文')}<label class="goal-field"><span>完了したこと（1行に1件）</span><textarea name="completions" rows="3">${esc((item.completions || []).join("\n"))}</textarea></label><div class="goal-actions">${item.id ? `<button type="button" class="danger" data-action-delete="${esc(item.id)}" data-revision="${item.revision}">削除</button>` : '<button type="button" class="secondary" data-close>キャンセル</button>'}<button type="submit" class="primary">保存</button></div></form>`;
+  return `<form class="goal-action-card action-drawer-form" data-action-form data-action-date="${esc(item.actionDate || state.goalDate)}" ${item.id ? `data-action-id="${esc(item.id)}" data-revision="${item.revision}"` : ""}><div class="goal-time-fields"><label><span>開始時間</span><input type="time" name="startTime" required value="${esc(item.startTime || "09:00")}"></label><label><span>終了時間</span><input type="time" name="endTime" required value="${esc(item.endTime || "10:00")}"></label></div><label class="goal-field"><span>アクション</span><input name="action" required maxlength="300" value="${esc(item.action || "")}" placeholder="今日やること"></label><div class="goal-two-fields"><label class="goal-field"><span>場所</span><input name="location" maxlength="300" value="${esc(item.location || "")}" placeholder="自宅、研究室など"></label><label class="goal-field"><span>達成度</span><select name="progress">${[0,25,50,75,100].map((value) => `<option value="${value}" ${Number(item.progress || 0) === value ? "selected" : ""}>${value}%</option>`).join("")}</select></label></div><fieldset class="goal-tags"><legend>タグ</legend>${tagGroups || '<span class="muted">設定画面でタグを追加できます</span>'}</fieldset><div class="resource-tag-filter">共通タグ絞り込み<select data-action-resource-tag><option value="">すべてのタグ</option>${state.bootstrap.tags.map(t=>`<option value="${esc(t.id)}" ${state.actionTagId===t.id?'selected':''}>${esc(t.categoryName)}｜${esc(t.name)}</option>`).join('')}</select></div><section class="action-resource-section"><header><div><h4>ファイル</h4><small>基準パス内から選択</small></div><button type="button" class="secondary" data-action-add-file>＋ この場で追加</button></header><div class="action-file-toolbar"><input type="search" data-action-file-search placeholder="名前・フォルダで検索" value="${esc(state.actionFileQuery)}"><select data-action-file-sort><option value="latest" ${state.actionFileSort === "latest" ? "selected" : ""}>最新順</option><option value="name" ${state.actionFileSort === "name" ? "selected" : ""}>名前順</option></select></div><div class="action-file-browser-host">${actionFileBrowserContent(item.managedFileIds || [])}</div></section><section class="action-resource-section"><header><div><h4>フォルダ</h4><small>クリックでファイル管理アプリが開きます</small></div><button type="button" class="secondary" data-action-add-folder>＋ フォルダを添付</button></header>${folderChips(item.folderPaths || [], "data-action-remove-folder")}</section>${resource('book','書籍')}${resource('paper','文書')}<label class="goal-field"><span>完了したこと（1行に1件）</span><textarea name="completions" rows="3">${esc((item.completions || []).join("\n"))}</textarea></label><div class="goal-actions">${item.id ? `<button type="button" class="danger" data-action-delete="${esc(item.id)}" data-revision="${item.revision}">削除</button>` : '<button type="button" class="secondary" data-close>キャンセル</button>'}<button type="submit" class="primary">保存</button></div></form>`;
 }
 function actionForm(item) { return actionFormMarkup(item).replace("完了したこと（1行に1件）","メモ（1行に1件）"); }
 
@@ -170,7 +183,7 @@ function searchView() {
   const q = state.query.trim();
   const section = (title, items, renderItem) => { const visible = items.filter(visibleByTags); return `<section class="result-section"><h2>${title} <span class="result-count">${visible.length}件</span></h2>${visible.length ? visible.map(renderItem).join("") : '<p class="empty-copy">一致する項目はありません。</p>'}</section>`; };
   if (!q) return `${heading("FULL TEXT SEARCH", "検索", "上の検索欄へキーワードを入力してください")}<div class="journal-empty"><strong>日記・作業履歴・ファイルをまとめて検索</strong><p>検索内容は外部へ送信されません。</p></div>`;
-  return `${heading("FULL TEXT SEARCH", `「${q}」の検索結果`)}${section("日記", state.search.journals, journalCard)}${section("メモ", state.search.memos || [], (item) => `<button class="journal-card" data-open-memo="${esc(item.id)}"><time>${esc(dateText(localDate(new Date(item.createdAt))))}</time><span><strong>${esc(item.title)}</strong><small>${esc(item.excerpt || "")}</small></span><span>→</span></button>`)}${section("作業履歴", state.search.activities, (item) => `<div class="simple-row"><span><strong>${esc(item.windowTitle || item.applicationName)}</strong><small>${esc([item.applicationName, item.projectName].filter(Boolean).join(" · "))}</small></span><time>${esc(item.occurredAt.slice(0, 10))}</time></div>`)}${section("ファイル", state.search.files, (item) => `<button class="simple-row" data-file="${esc(item.id)}"><span><strong>${esc(item.name)}</strong><small>${esc(fileKind(item.extension))}</small></span><span>詳細 →</span></button>`)}${section("くらしの本・まなびの本・論文", state.search.library || [], (item) => `<button class="simple-row" data-library="${esc(item.id)}"><span><strong>${item.favorite ? "★ " : ""}${esc(item.title)}</strong><small>${esc((item.authors || []).join(", "))}</small></span><span>${esc({book:"くらしの本",textbook:"まなびの本",paper:"論文"}[item.itemType])} →</span></button>`)}`;
+  return `${heading("FULL TEXT SEARCH", `「${q}」の検索結果`)}${section("日記", state.search.journals, journalCard)}${section("メモ", state.search.memos || [], (item) => `<button class="journal-card" data-open-memo="${esc(item.id)}"><time>${esc(dateText(localDate(new Date(item.createdAt))))}</time><span><strong>${esc(item.title)}</strong><small>${esc(item.excerpt || "")}</small></span><span>→</span></button>`)}${section("作業履歴", state.search.activities, (item) => `<div class="simple-row"><span><strong>${esc(item.windowTitle || item.applicationName)}</strong><small>${esc([item.applicationName, item.projectName].filter(Boolean).join(" · "))}</small></span><time>${esc(item.occurredAt.slice(0, 10))}</time></div>`)}${section("ファイル", state.search.files, (item) => `<button class="simple-row" data-file="${esc(item.id)}"><span><strong>${esc(item.name)}</strong><small>${esc(fileKind(item.extension))}</small></span><span>詳細 →</span></button>`)}${section("書籍・文書", state.search.library || [], (item) => `<button class="simple-row" data-library="${esc(item.id)}"><span><strong>${item.favorite ? "★ " : ""}${esc(item.title)}</strong><small>${esc((item.authors || []).join(", "))}</small></span><span>${esc({book:"書籍",paper:"文書"}[item.itemType] || "資料")} →</span></button>`)}`;
 }
 
 function fileKind(extension = "") {
@@ -191,22 +204,70 @@ function filesView() {
   const cards = visibleFiles.map((item) => `<article class="managed-file-card"><button class="managed-file-main" data-file="${esc(item.id)}"><span class="managed-file-icon"><b>${esc((item.extension || "FILE").slice(0, 4).toUpperCase())}</b></span><span><strong>${esc(item.name)}</strong><small>${esc(fileKind(item.extension))} · ${esc(item.relativePath || "")}</small><span class="managed-file-tags">${item.tagIds.length ? item.tagIds.map((id) => `<i>${esc(tags.get(id) || id)}</i>`).join("") : "タグなし"}</span></span></button>${item.actions?.length ? `<div class="managed-file-relations"><span>関連するアクション</span>${item.actions.map((action) => `<button data-action-edit="${esc(action.id)}"><time>${esc(action.itemDate || "")}</time>${esc(action.title)}</button>`).join("")}</div>` : ""}${item.todos?.length ? `<div class="managed-file-relations"><span>関連するTodo</span>${item.todos.map((todo) => `<button data-view="todo"><time>${esc(todo.itemDate || "")}</time>${esc(todo.title)}</button>`).join("")}</div>` : ""}${item.memos?.length ? `<div class="managed-file-relations"><span>関連するメモ</span>${item.memos.map((memo) => `<button data-open-memo="${esc(memo.id)}"><time>${esc(memo.itemDate || "")}</time>${esc(memo.title)}</button>`).join("")}</div>` : ""}</article>`).join("");
   return `${heading("MANAGED FILES", "ファイル", "Todo・時間割へ添付したファイルを、名前・タグ・関連する作業から検索")}<div class="file-list-toolbar"><input type="search" data-file-query value="${esc(state.fileQuery)}" placeholder="ファイル名・タグ・関連する作業で検索"><select data-file-sort><option value="name" ${state.fileSort === "name" ? "selected" : ""}>名前順</option><option value="type" ${state.fileSort === "type" ? "selected" : ""}>種類順</option><option value="latest" ${state.fileSort === "latest" ? "selected" : ""}>登録が新しい順</option></select><div class="paper-count file-count"><strong>${visibleFiles.length}</strong><span>VISIBLE<br>FILES</span></div><fieldset class="file-tag-filter"><legend>タグをすべて含むファイル（AND検索）</legend>${state.bootstrap.tagCategories.map(category=>{const categoryTags=state.bootstrap.tags.filter(tag=>tag.categoryId===category.id);return categoryTags.length?`<div><strong>${esc(category.name)}</strong>${categoryTags.map(tag=>`<label><input type="checkbox" data-file-filter-tag="${esc(tag.id)}" ${state.fileTagIds.has(tag.id)?'checked':''}><span>${esc(tag.name)}</span></label>`).join('')}</div>`:'';}).join('')}</fieldset></div><div class="managed-file-list">${cards || '<div class="journal-empty"><strong>登録されたファイルはありません</strong><p>Todoまたは時間割の編集画面からファイルを追加すると、ここで探せるようになります。</p></div>'}</div>`;
 }
-const libraryTypes = { book: { view: "books", title: "くらしの本", eyebrow: "BOOK LIBRARY", description: "自己啓発書・小説、雑誌など" }, textbook: { view: "textbooks", title: "まなびの本", eyebrow: "TEXTBOOK LIBRARY", description: "教科書・参考書など" }, paper: { view: "papers", title: "論文", eyebrow: "LITERATURE SURVEY", description: "論文・文献" } };
+const libraryTypes = { book: { view: "books", title: "書籍", eyebrow: "BOOK LIBRARY", description: "一般書・小説・雑誌・教科書・参考書など" }, paper: { view: "papers", title: "文書", eyebrow: "LITERATURE SURVEY", description: "文書・PDFの書類など" } };
 const readingStatuses = [{ id: "unverified", label: "未確認" }, { id: "unread", label: "未読" }, { id: "reading", label: "読書中" }, { id: "read", label: "読了" }, { id: "cited", label: "参照済み" }];
+
+const librarySortOptions = {
+  book: [["recommended","おすすめ順"],["title","タイトル順"],["author","著者順"],["tag","タグ順"],["status","読書状況順"],["priority","優先度が高い順"],["updated","更新が新しい順"],["created","登録が新しい順"],["created-asc","登録が古い順"]],
+  paper: [["recommended","おすすめ順"],["title","タイトル順"],["author","著者順"],["year-desc","発行年が新しい順"],["year-asc","発行年が古い順"],["publication","掲載先順"],["tag","タグ順"],["status","読書状況順"],["priority","優先度が高い順"],["updated","更新が新しい順"],["created","登録が新しい順"]]
+};
+function filterAndSortLibrary(itemType, items, tagNames) {
+  const query = (state.libraryQuery[itemType] || "").trim().toLocaleLowerCase("ja");
+  const words = query.split(/[\s　]+/).filter(Boolean);
+  const selectedTags = [...state.libraryTagIds[itemType]];
+  const statusFilter = state.libraryStatusFilter[itemType];
+  const statusLabel = (item) => readingStatuses.find((status) => status.id === item.status)?.label || item.status;
+  const searchable = (item) => [item.title, ...(item.authors || []), item.publication, item.year, ...(item.keywords || []), item.doi, item.url, item.takeawayMarkdown, item.sourceRelativePath, statusLabel(item), ...(item.tagIds || []).map((id) => tagNames.get(id) || id)].filter(Boolean).join(" ").toLocaleLowerCase("ja");
+  const firstTag = (item) => (item.tagIds || []).map((id) => tagNames.get(id) || id).sort((a, b) => a.localeCompare(b, "ja"))[0];
+  const statusOrder = { unverified: 0, reading: 1, unread: 2, read: 3, cited: 4 };
+  const byTitle = (a, b) => String(a.title || "").localeCompare(String(b.title || ""), "ja");
+  const compare = {
+    recommended: () => 0,
+    title: byTitle,
+    author: (a, b) => (a.authors?.[0] ? 0 : 1) - (b.authors?.[0] ? 0 : 1) || String(a.authors?.[0] || "").localeCompare(String(b.authors?.[0] || ""), "ja") || byTitle(a, b),
+    tag: (a, b) => (firstTag(a) ? 0 : 1) - (firstTag(b) ? 0 : 1) || String(firstTag(a) || "").localeCompare(String(firstTag(b) || ""), "ja") || byTitle(a, b),
+    status: (a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9) || byTitle(a, b),
+    priority: (a, b) => Number(b.priority || 0) - Number(a.priority || 0) || byTitle(a, b),
+    updated: (a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
+    created: (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+    "created-asc": (a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")),
+    "year-desc": (a, b) => (a.year ? 0 : 1) - (b.year ? 0 : 1) || Number(b.year || 0) - Number(a.year || 0) || byTitle(a, b),
+    "year-asc": (a, b) => (a.year ? 0 : 1) - (b.year ? 0 : 1) || Number(a.year || 0) - Number(b.year || 0) || byTitle(a, b),
+    publication: (a, b) => (a.publication ? 0 : 1) - (b.publication ? 0 : 1) || String(a.publication || "").localeCompare(String(b.publication || ""), "ja") || byTitle(a, b)
+  }[state.librarySort[itemType]] || (() => 0);
+  return items
+    .filter((item) => selectedTags.every((tagId) => (item.tagIds || []).includes(tagId)))
+    .filter((item) => !statusFilter || item.status === statusFilter)
+    .filter((item) => { const text = searchable(item); return words.every((word) => text.includes(word)); })
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => compare(a.item, b.item) || a.index - b.index)
+    .map((entry) => entry.item);
+}
+function libraryToolbar(itemType, visibleCount, totalCount) {
+  const selected = state.libraryTagIds[itemType];
+  const unit = itemType === "paper" ? "PAPERS" : "BOOKS";
+  const filtered = (state.libraryQuery[itemType] || "").trim() || selected.size || state.libraryStatusFilter[itemType] || state.librarySort[itemType] !== "recommended";
+  const tagGroups = state.bootstrap.tagCategories.map((category) => { const categoryTags = state.bootstrap.tags.filter((tag) => tag.categoryId === category.id && !state.hiddenTagIds.has(tag.id)); return categoryTags.length ? `<div><strong>${esc(category.name)}</strong>${categoryTags.map((tag) => `<label><input type="checkbox" data-library-filter-tag="${esc(tag.id)}" data-library-type="${itemType}" ${selected.has(tag.id) ? "checked" : ""}><span>${esc(tag.name)}</span></label>`).join("")}</div>` : ""; }).join("");
+  return `<div class="file-list-toolbar library-toolbar"><input type="search" data-library-query="${itemType}" value="${esc(state.libraryQuery[itemType] || "")}" placeholder="${itemType === "paper" ? "タイトル・著者・キーワード・掲載先・DOI・タグで検索" : "タイトル・著者・タグ・メモで検索"}" aria-label="キーワード検索"><select data-library-sort="${itemType}" aria-label="並び替え">${librarySortOptions[itemType].map(([value, label]) => `<option value="${value}" ${state.librarySort[itemType] === value ? "selected" : ""}>${label}</option>`).join("")}</select><select data-library-status="${itemType}" aria-label="読書状況で絞り込み"><option value="">すべての状況</option>${readingStatuses.map((status) => `<option value="${status.id}" ${state.libraryStatusFilter[itemType] === status.id ? "selected" : ""}>${status.label}</option>`).join("")}</select><div class="paper-count file-count"><strong>${visibleCount}<small> / ${totalCount}</small></strong><span>VISIBLE<br>${unit}</span></div>${filtered ? `<button type="button" class="secondary library-filter-reset" data-library-reset="${itemType}">条件をリセット</button>` : ""}${tagGroups ? `<fieldset class="file-tag-filter"><legend>タグで絞り込み（選んだタグをすべて含むもの）</legend>${tagGroups}</fieldset>` : ""}</div>`;
+}
+const libraryNoMatch = (itemType) => `<div class="journal-empty"><strong>条件に一致する${itemType === "paper" ? "文書" : "書籍"}はありません</strong><p>キーワードやタグの条件を変えてみてください。</p><button type="button" class="secondary" data-library-reset="${itemType}">条件をリセット</button></div>`;
 
 function libraryView(itemType) {
   const type = libraryTypes[itemType], tags = new Map(state.bootstrap.tags.map((tag) => [tag.id, tag]));
   state.libraryItems = state.libraryItems.filter(visibleByTags);
+  const tagNames = new Map(state.bootstrap.tags.map((tag) => [tag.id, tag.name]));
+  const shown = filterAndSortLibrary(itemType, state.libraryItems, tagNames);
+  const toolbar = libraryToolbar(itemType, shown.length, state.libraryItems.length);
   if (itemType !== "paper") {
-    const books = state.libraryItems.map((item) => `<button class="book-volume ${item.status==='unverified'?'is-unverified':''}" data-library="${esc(item.id)}"><span class="book-cover">${item.coverUploadId ? `<img src="/api/v1/uploads/${esc(item.coverUploadId)}/content" alt="">` : '<b>BOOK</b>'}<i></i></span><span class="book-spine-info"><small>${item.status === "unverified" ? '<i class="unverified-dot"></i> 未確認 · 書誌情報を確認してください' : (item.favorite ? "★ FAVORITE" : "LIBRARY")}</small><strong>${esc(item.title)}</strong><span>${esc(item.authors.join(", ") || "著者未入力")}</span><span class="book-meta">${esc(readingStatuses.find((status) => status.id === item.status)?.label || item.status)} · ${esc(item.tagIds.map((id) => tags.get(id)?.name || id).join(" / ") || "タグなし")}</span></span><span class="book-arrow">詳細 →</span></button>`).join("");
+    const books = shown.map((item) => `<button class="book-volume ${item.status==='unverified'?'is-unverified':''}" data-library="${esc(item.id)}"><span class="book-cover">${item.coverUploadId ? `<img src="/api/v1/uploads/${esc(item.coverUploadId)}/content" alt="">` : '<b>BOOK</b>'}<i></i></span><span class="book-spine-info"><small>${item.status === "unverified" ? '<i class="unverified-dot"></i> 未確認 · 書誌情報を確認してください' : (item.favorite ? "★ FAVORITE" : "LIBRARY")}</small><strong>${esc(item.title)}</strong><span>${esc(item.authors.join(", ") || "著者未入力")}</span><span class="book-meta">${esc(readingStatuses.find((status) => status.id === item.status)?.label || item.status)} · ${esc(item.tagIds.map((id) => tags.get(id)?.name || id).join(" / ") || "タグなし")}</span></span><span class="book-arrow">詳細 →</span></button>`).join("");
     const tools = `<div class="paper-tools"><div class="paper-count"><strong>${state.libraryItems.length}</strong><span>TOTAL<br>BOOKS</span></div><button class="new-button" data-new-library="${itemType}">＋ 新規追加</button></div>`;
-    return `${heading(type.eyebrow, type.title, type.description, tools)}<label class="book-pdf-drop" data-pdf-drop="${itemType}"><input type="file" accept="application/pdf" data-pdf-input="${itemType}"><strong>PDFをここへドロップ</strong><span>基準フォルダ内のPDFを「未確認」として登録します</span></label><div class="book-shelf-list">${books || '<div class="journal-empty"><strong>本棚はまだ空です</strong><p>PDFをドロップするか、新規追加してください。</p></div>'}</div>`;
+    return `${heading(type.eyebrow, type.title, type.description, tools)}<label class="book-pdf-drop" data-pdf-drop="${itemType}"><input type="file" accept="application/pdf" data-pdf-input="${itemType}"><strong>PDFをここへドロップ</strong><span>基準フォルダ内のPDFを「未確認」として登録します</span></label>${toolbar}<div class="book-shelf-list">${books || (state.libraryItems.length ? libraryNoMatch(itemType) : '<div class="journal-empty"><strong>本棚はまだ空です</strong><p>PDFをドロップするか、新規追加してください。</p></div>')}</div>`;
   }
-  const papers = state.libraryItems.map((item) => `<article class="paper-volume ${item.status==='unverified'?'is-unverified':''}" data-library="${esc(item.id)}"><span class="paper-preview">${(item.sourceRootId || item.sourceUploadId) ? `<img src="/api/v1/library/${esc(item.id)}/thumbnail" alt="${esc(item.title)}の先頭ページ" loading="lazy" decoding="async">` : '<b>PDF</b>'}<i></i></span><button type="button" class="paper-spine-info" data-library="${esc(item.id)}"><small>${item.status === "unverified" ? '<i class="unverified-dot"></i> 未確認 · 書誌情報を確認してください' : (item.favorite ? "★ FAVORITE" : "PAPER")}</small><strong>${esc(item.title)}</strong><span>${esc(item.authors.join(", ") || "著者未入力")}</span><span class="paper-meta">${esc(item.year || "年未入力")} · ${esc(item.publication || "掲載先未入力")} · ${esc(readingStatuses.find((status) => status.id === item.status)?.label || item.status)}</span><span class="paper-keywords">${esc(item.keywords.join(" / ") || "キーワードなし")} · ${esc(item.tagIds.map((id) => tags.get(id)?.name || id).join(" / ") || "タグなし")}</span></button><span class="book-arrow">詳細 →</span></article>`).join("");
+  const papers = shown.map((item) => `<article class="paper-volume ${item.status==='unverified'?'is-unverified':''}" data-library="${esc(item.id)}"><span class="paper-preview">${(item.sourceRootId || item.sourceUploadId) ? `<img src="/api/v1/library/${esc(item.id)}/thumbnail" alt="${esc(item.title)}の先頭ページ" loading="lazy" decoding="async">` : '<b>PDF</b>'}<i></i></span><button type="button" class="paper-spine-info" data-library="${esc(item.id)}"><small>${item.status === "unverified" ? '<i class="unverified-dot"></i> 未確認 · 書誌情報を確認してください' : (item.favorite ? "★ FAVORITE" : "PAPER")}</small><strong>${esc(item.title)}</strong><span>${esc(item.authors.join(", ") || "著者未入力")}</span><span class="paper-meta">${esc(item.year || "年未入力")} · ${esc(item.publication || "掲載先未入力")} · ${esc(readingStatuses.find((status) => status.id === item.status)?.label || item.status)}</span><span class="paper-keywords">${esc(item.keywords.join(" / ") || "キーワードなし")} · ${esc(item.tagIds.map((id) => tags.get(id)?.name || id).join(" / ") || "タグなし")}</span></button><span class="book-arrow">詳細 →</span></article>`).join("");
   const tools = `<div class="paper-tools"><div class="paper-count"><strong>${state.libraryItems.length}</strong><span>TOTAL<br>PAPERS</span></div><button class="new-button" data-new-library="${itemType}">＋ 新規追加</button></div>`;
-  return `${heading(type.eyebrow, type.title, type.description, tools)}<label class="book-pdf-drop" data-pdf-drop="paper"><input type="file" accept="application/pdf" data-pdf-input="paper"><strong>論文PDFをここへドロップ</strong><span>基準フォルダ内のPDFを「未確認」として登録します</span></label><div class="paper-shelf-list">${papers || '<div class="journal-empty"><strong>論文棚はまだ空です</strong><p>PDFをドロップするか、新規追加してください。</p></div>'}</div>`;
+  return `${heading(type.eyebrow, type.title, type.description, tools)}<label class="book-pdf-drop" data-pdf-drop="paper"><input type="file" accept="application/pdf" data-pdf-input="paper"><strong>文書のPDFをここへドロップ</strong><span>基準フォルダ内のPDFを「未確認」として登録します</span></label>${toolbar}<div class="paper-shelf-list">${papers || (state.libraryItems.length ? libraryNoMatch(itemType) : '<div class="journal-empty"><strong>文書棚はまだ空です</strong><p>PDFをドロップするか、新規追加してください。</p></div>')}</div>`;
 }
-function settingsView() { const typeNames = { journal: "日記", memo: "メモ", book: "くらしの本", textbook: "まなびの本", paper: "論文" }, theme = state.bootstrap.theme; return `${heading("SETTINGS", "設定", "アプリ内の設定")}<div class="settings-grid"><form class="settings-card theme-settings" data-theme-form><h2>配色</h2><p>背景、カードやナビゲーション、主要ボタンの色を変更できます。</p><div class="theme-fields"><label><span>背景色</span><input type="color" name="background" value="${esc(theme.background)}"></label><label><span>カード・ナビゲーション</span><input type="color" name="surface" value="${esc(theme.surface)}"></label><label><span>ボタン・強調色</span><input type="color" name="accent" value="${esc(theme.accent)}"></label></div><button class="primary" type="submit">配色を保存</button></form><section class="settings-card"><h2>タグ <button class="new-button" data-new-tag>＋ タグ</button></h2>${state.bootstrap.tags.length ? `<ul>${state.bootstrap.tags.map((tag) => `<li>${esc(tag.name)} <code>${esc(tag.id)}</code></li>`).join("")}</ul>` : '<p>タグはまだありません。</p>'}</section><section class="settings-card file-root-settings"><h2>ファイル参照の基準パス <button class="new-button" data-new-root>＋ 追加</button></h2><p>実際のパスは画面へ表示せず、利用可能かどうかだけを毎回確認します。</p>${state.bootstrap.fileRoots.length ? `<div class="root-list">${state.bootstrap.fileRoots.map((root) => `<div class="simple-row"><span><strong>${esc(root.displayName)}</strong><small><code>${esc(root.id)}</code> · <i class="root-state ${root.available ? "available" : "missing"}">${root.available ? "利用可能" : "見つかりません"}</i></small></span><button data-edit-root="${esc(root.id)}">再設定</button></div>`).join("")}</div>` : '<div class="empty-root"><strong>基準パスが未設定です</strong><p>「追加」からOSのフォルダ選択画面を開けます。</p></div>'}</section><section class="settings-card"><h2>ゴミ箱</h2><p>${state.trash.length}件あります。</p>${state.trash.map((item) => `<div class="simple-row"><span><strong>${esc(item.title)}</strong><small>${esc(typeNames[item.itemType || item.entityType] || "資料")} · ${esc(item.displayDate || "")}</small></span><span><button data-restore="${esc(item.id)}" data-trash-type="${esc(item.entityType)}" data-revision="${item.revision}">復元</button> <button data-purge="${esc(item.id)}" data-trash-type="${esc(item.entityType)}" data-revision="${item.revision}">完全削除</button></span></div>`).join("")}</section></div>`; }
+function settingsView() { const typeNames = { journal: "日記", memo: "メモ", book: "書籍", paper: "文書" }, theme = state.bootstrap.theme; return `${heading("SETTINGS", "設定", "アプリ内の設定")}<div class="settings-grid"><form class="settings-card theme-settings" data-theme-form><h2>配色</h2><p>背景、カードやナビゲーション、主要ボタンの色を変更できます。</p><div class="theme-fields"><label><span>背景色</span><input type="color" name="background" value="${esc(theme.background)}"></label><label><span>カード・ナビゲーション</span><input type="color" name="surface" value="${esc(theme.surface)}"></label><label><span>ボタン・強調色</span><input type="color" name="accent" value="${esc(theme.accent)}"></label></div><button class="primary" type="submit">配色を保存</button></form><section class="settings-card"><h2>タグ <button class="new-button" data-new-tag>＋ タグ</button></h2>${state.bootstrap.tags.length ? `<ul>${state.bootstrap.tags.map((tag) => `<li>${esc(tag.name)} <code>${esc(tag.id)}</code></li>`).join("")}</ul>` : '<p>タグはまだありません。</p>'}</section><section class="settings-card file-root-settings"><h2>ファイル参照の基準パス <button class="new-button" data-new-root>＋ 追加</button></h2><p>実際のパスは画面へ表示せず、利用可能かどうかだけを毎回確認します。</p>${state.bootstrap.fileRoots.length ? `<div class="root-list">${state.bootstrap.fileRoots.map((root) => `<div class="simple-row"><span><strong>${esc(root.displayName)}</strong><small><code>${esc(root.id)}</code> · <i class="root-state ${root.available ? "available" : "missing"}">${root.available ? "利用可能" : "見つかりません"}</i></small></span><button data-edit-root="${esc(root.id)}">再設定</button></div>`).join("")}</div>` : '<div class="empty-root"><strong>基準パスが未設定です</strong><p>「追加」からOSのフォルダ選択画面を開けます。</p></div>'}</section><section class="settings-card"><h2>ゴミ箱</h2><p>${state.trash.length}件あります。</p>${state.trash.map((item) => `<div class="simple-row"><span><strong>${esc(item.title)}</strong><small>${esc(typeNames[item.itemType || item.entityType] || "資料")} · ${esc(item.displayDate || "")}</small></span><span><button data-restore="${esc(item.id)}" data-trash-type="${esc(item.entityType)}" data-revision="${item.revision}">復元</button> <button data-purge="${esc(item.id)}" data-trash-type="${esc(item.entityType)}" data-revision="${item.revision}">完全削除</button></span></div>`).join("")}</section></div>`; }
 
 function settingsViewWithReset() {
   const categoryForms = state.bootstrap.tagCategories.map((category) => `<form class="tag-admin-row category-admin-row" data-category-form data-category-id="${esc(category.id)}" data-revision="${category.revision}"><input type="number" name="displayOrder" min="1" value="${category.displayOrder}"><input name="name" value="${esc(category.name)}" required><code>${esc(category.id)}</code><input name="description" value="${esc(category.description)}"><button class="secondary">保存</button></form>`).join("");
@@ -225,35 +286,51 @@ const themePresets = {
   lavender: { background: "#f3eff7", surface: "#e8e0f0", accent: "#765477", text: "#332b38" },
   ocean: { background: "#eaf3f5", surface: "#dce9ed", accent: "#416b7c", text: "#203239" },
 };
+// HOMEは白、設定・使い方は無彩色、Todo〜文書はナビの並び順に虹色（scripts/settings.jsと同じ値）。
+const defaultBatteryColors = {
+  dashboard: "#ffffff", todo: "#e06666", goals: "#ec9a4a", calendar: "#e2c044",
+  analysis: "#a3c255", worktree: "#56b27a", files: "#4db3be", books: "#5b8dd9",
+  papers: "#9573cf", settings: "#96968f", help: "#96968f",
+};
+const characterSpeeds = [[80, "ゆっくり"], [150, "ふつう"], [240, "はやい"], [400, "とてもはやい"]];
+const batteryPageLabels = {
+  dashboard: "HOME", todo: "Todo", goals: "時間割", calendar: "カレンダー", analysis: "活動分析",
+  worktree: "作業ツリー", files: "ファイル", books: "書籍", papers: "文書", settings: "設定", help: "使い方",
+};
 
 function settingsViewV2() {
   const theme = state.bootstrap.theme;
-  const typeNames = { journal: "日記", memo: "メモ", book: "くらしの本", textbook: "まなびの本", paper: "論文" };
+  const themeMode = state.bootstrap.themeMode || "auto";
+  const batteryColors = { ...defaultBatteryColors, ...(state.bootstrap.batteryColors || {}) };
+  const typeNames = { journal: "日記", memo: "メモ", book: "書籍", paper: "文書" };
   const tagTables = state.bootstrap.tagCategories.map((category) => { const tags = state.bootstrap.tags.filter((tag) => tag.categoryId === category.id); return `<section class="tag-category-table"><h3>${esc(category.name)} <small>${tags.length}件</small></h3><div class="tag-admin-head"><span>表示順</span><span>表示名</span><span>分類</span><span>説明</span><span>操作</span></div>${tags.map((tag) => `<form class="tag-admin-row" data-tag-form data-tag-id="${esc(tag.id)}" data-revision="${tag.revision}"><input type="number" name="displayOrder" min="1" value="${tag.displayOrder}"><input name="name" value="${esc(tag.name)}" required><select name="categoryId">${state.bootstrap.tagCategories.map((option) => `<option value="${esc(option.id)}" ${option.id === tag.categoryId ? "selected" : ""}>${esc(option.name)}</option>`).join("")}</select><input name="description" value="${esc(tag.description)}"><span class="tag-row-actions"><button class="secondary">保存</button><button type="button" class="secondary" data-tag-archive="${esc(tag.id)}" data-revision="${tag.revision}">アーカイブ</button></span></form>`).join("") || '<p class="muted">この分類のタグはありません。</p>'}</section>`; }).join("");
-  const rootTypes=[{id:"files",name:"ファイル",description:"Todo・アクションへ添付する一般ファイル"},{id:"books",name:"くらしの本",description:"自己啓発書・小説・雑誌などのPDF"},{id:"textbooks",name:"まなびの本",description:"教科書・参考書などのPDF"},{id:"papers",name:"論文",description:"論文・文献のPDF"}];
-  const legacyRoots=[];
-  const roots = `<div class="purpose-root-grid">${rootTypes.map(type=>{const root=state.bootstrap.fileRoots.find(item=>item.id===type.id);return `<article><div><strong>${esc(type.name)}</strong><small>${esc(type.description)}</small>${root?`<code title="${esc(root.absolutePath)}">${esc(root.absolutePath)}</code>`:""}</div>${root?`<span class="root-state ${root.available?"available":"missing"}">${root.available?"利用可能":"見つかりません"}</span><button data-edit-root="${esc(root.id)}">再設定</button>`:`<span class="root-state missing">未設定</span><button data-new-root="${esc(type.id)}">設定する</button>`}</article>`}).join("")}${legacyRoots.map(root=>`<article><div><strong>${esc(root.displayName)}</strong><small>既存の日記などが参照している旧基準パス</small><code title="${esc(root.absolutePath)}">${esc(root.absolutePath)}</code></div><span class="root-state ${root.available?"available":"missing"}">${root.available?"利用可能":"見つかりません"}</span><button data-edit-root="${esc(root.id)}">再設定</button></article>`).join("")}</div>`;
+  const roots = window.TickTockTomeDataset.settingsCard(state.bootstrap);
   const trash = state.trash.map((item) => `<div class="simple-row"><span><strong>${esc(item.title)}</strong><small>${esc(typeNames[item.itemType || item.entityType] || "資料")} · ${esc(item.displayDate || "")}</small></span><span><button data-restore="${esc(item.id)}" data-trash-type="${esc(item.entityType)}" data-revision="${item.revision}">復元</button> <button data-purge="${esc(item.id)}" data-trash-type="${esc(item.entityType)}" data-revision="${item.revision}">完全削除</button></span></div>`).join("");
   const llm=state.bootstrap.localLlm||{enabled:false,executablePath:"",modelPath:"",pdfTextPath:""};
   const llmCard=`<form class="settings-card local-llm-settings" data-local-llm-form><h2>ローカルLLM</h2><p>書誌情報の抽出と活動分析に使用します。モデルのダウンロードや外部送信は自動で行いません。</p><ol><li>llama.cppの<code>llama-cli</code>をPCへ用意します。</li><li>利用許諾を確認したGGUFモデルを自分でダウンロードします。</li><li>PDF文字抽出用の<code>pdftotext</code>を用意します。</li><li>下の3つの絶対パスを入力して有効にします。</li></ol><label class="llm-toggle"><input type="checkbox" name="enabled" ${llm.enabled?"checked":""}><span>ローカルLLMを有効にする</span></label><label><span>活動分析の実行方法</span><select name="analysisMode"><option value="off" ${llm.analysisMode==='off'?'selected':''}>使用しない</option><option value="manual" ${llm.analysisMode==='manual'?'selected':''}>手動分析</option><option value="auto" ${llm.analysisMode==='auto'?'selected':''}>自動分析</option></select></label><div class="llm-path-grid"><label><span>llama.cpp実行ファイル</span><input name="executablePath" value="${esc(llm.executablePath)}" placeholder="/path/to/llama-cli"></label><label><span>GGUFモデル</span><input name="modelPath" value="${esc(llm.modelPath)}" placeholder="/path/to/model.gguf"></label><label><span>pdftotext実行ファイル</span><input name="pdfTextPath" value="${esc(llm.pdfTextPath)}" placeholder="/path/to/pdftotext"></label></div><p class="privacy-note">自動分析は画面表示後に直近7日間の未分析・更新済みの日だけを処理します。通常集計はLLMなしでも利用できます。</p><button class="primary">ローカルLLM設定を保存</button></form>`;
+  const illumination = state.bootstrap.illumination !== false, speed = state.bootstrap.characterSpeed || 150;
+  const motionCard = `<form class="settings-card motion-settings" data-motion-form><h2>アニメーション</h2><p>ナビゲーションを押したときの演出を設定します。</p><label class="llm-toggle"><input type="checkbox" name="illumination" ${illumination ? "checked" : ""}><span>豆電球と同期してページの色を切り替える</span></label><p class="privacy-note">オフにすると、ページを切り替えた瞬間にページの色も変わります。キャラクターは引き続き電池まで歩きます。</p><fieldset class="motion-speed-options"><legend>キャラクターの速さ</legend>${characterSpeeds.map(([value, label]) => `<label><input type="radio" name="characterSpeed" value="${value}" ${speed === value ? "checked" : ""}><span>${label}</span></label>`).join("")}</fieldset><button class="primary">アニメーションを保存</button></form>`;
   const fonts = [{id:"classic",name:"クラシック",sample:"記録を、静かに積み重ねる",note:"読みやすい本文＋落ち着いた見出し"},{id:"modern",name:"モダン",sample:"今日の予定を整える",note:"すっきりしたゴシック体"},{id:"rounded",name:"まるもじ",sample:"ちいさな一歩を楽しもう",note:"やさしくポップな丸ゴシック"},{id:"handwriting",name:"てがき",sample:"思いつきをそのままメモ",note:"ノートのような手書き体"},{id:"mincho",name:"明朝",sample:"日々の記憶を綴る",note:"本のような明朝体"}];
-  const fontCard = `<form class="settings-card font-settings" data-font-form><h2>フォント</h2><p>アプリに同梱した書体なので、OSが変わっても同じ見た目で表示されます。</p><div class="font-preset-grid">${fonts.map((font) => `<label class="font-preset font-preview-${font.id}"><input type="radio" name="fontPreset" value="${font.id}" ${state.bootstrap.fontPreset === font.id ? "checked" : ""}><span><strong>${font.name}</strong><b>${font.sample}</b><small>${font.note}</small></span></label>`).join("")}</div><div class="font-settings-footer"><small>SIL Open Font Licenseの書体を使用しています。</small><button class="primary">フォントを保存</button></div></form>${llmCard}`;
-  return `${heading("SETTINGS", "設定", "アプリ内の設定")}<div class="settings-grid"><form class="settings-card theme-settings" data-theme-form><h2>配色</h2><p>テンプレートを選んだ後、各色を細かく調整できます。</p><div class="theme-presets">${Object.entries({ light:"ライト", night:"ナイト", forest:"フォレスト", lavender:"ラベンダー", ocean:"オーシャン" }).map(([id, label]) => `<button type="button" data-theme-preset="${id}">${label}</button>`).join("")}</div><div class="theme-fields"><label><span>背景色</span><input type="color" name="background" value="${esc(theme.background)}"></label><label><span>カード</span><input type="color" name="surface" value="${esc(theme.surface)}"></label><label><span>強調色</span><input type="color" name="accent" value="${esc(theme.accent)}"></label><label><span>文字色</span><input type="color" name="text" value="${esc(theme.text || "#22282d")}"></label></div><div class="theme-actions"><button class="secondary" type="button" data-theme-reset>初期配色に戻す</button><button class="primary" type="submit">配色を保存</button></div></form>${fontCard}<section class="settings-card storage-settings"><h2>共有データの保存先</h2><p>日記、時間割、資料情報、表紙画像などを保存します。クラウド同期フォルダも選択できます。変更後はアプリを再起動してください。</p><div class="storage-location"><strong>${esc(state.bootstrap.contentLocation || "標準のローカル保存先")}</strong><small>PC固有のファイル参照基準パスはここへ移動しません。</small></div><button class="new-button" data-choose-content>保存先を選択</button></section><section class="settings-card file-root-settings"><h2>種類別の基準パス</h2><p>このPCだけで使用する設定です。DBには、この場所からの相対パスだけを保存します。</p>${roots}</section><section class="settings-card tag-management"><h2>タグ管理 <button class="new-button" data-new-tag>＋ タグ</button></h2><p>分類は「所属・テーマ・チャンネル・プロジェクト・ツール・その他」の6種類で固定されています。</p>${tagTables}</section><section class="settings-card"><h2>ゴミ箱</h2><p>${state.trash.length}件あります。</p>${trash || '<p class="muted">ゴミ箱は空です。</p>'}</section></div>`;
+  const fontCard = `<form class="settings-card font-settings" data-font-form><h2>フォント</h2><p>アプリに同梱した書体なので、OSが変わっても同じ見た目で表示されます。</p><div class="font-preset-grid">${fonts.map((font) => `<label class="font-preset font-preview-${font.id}"><input type="radio" name="fontPreset" value="${font.id}" ${state.bootstrap.fontPreset === font.id ? "checked" : ""}><span><strong>${font.name}</strong><b>${font.sample}</b><small>${font.note}</small></span></label>`).join("")}</div><div class="font-settings-footer"><small>SIL Open Font Licenseの書体を使用しています。</small><button class="primary">フォントを保存</button></div></form>${motionCard}${llmCard}`;
+  const modeChoices = `<fieldset class="theme-mode-options"><legend>ページテーマ</legend><label><input type="radio" name="themeMode" value="auto" ${themeMode === "auto" ? "checked" : ""}><span><b>自動</b><small>接続した電池の色でページを照らします</small></span></label><label><input type="radio" name="themeMode" value="manual" ${themeMode === "manual" ? "checked" : ""}><span><b>手動</b><small>すべてのページで同じ配色を使います</small></span></label></fieldset>`;
+  const batteryFields = `<section class="battery-color-settings"><div class="battery-color-head"><div><h3>ページごとの配色</h3><p>選んだ色から、ナビゲーションの電池と自動テーマを生成します。</p></div><button class="secondary" type="button" data-battery-reset>既定の配色に戻す</button></div><div class="battery-color-grid">${Object.entries(batteryPageLabels).map(([view, label]) => `<label><span>${label}</span><input type="color" name="battery-${view}" value="${esc(batteryColors[view])}"></label>`).join("")}</div></section>`;
+  const manualFields = `<section class="manual-theme-settings"><h3>手動モードの配色</h3><div class="theme-presets">${Object.entries({ light:"ライト", night:"ナイト", forest:"フォレスト", lavender:"ラベンダー", ocean:"オーシャン" }).map(([id, label]) => `<button type="button" data-theme-preset="${id}">${label}</button>`).join("")}</div><div class="theme-fields"><label><span>背景色</span><input type="color" name="background" value="${esc(theme.background)}"></label><label><span>カード</span><input type="color" name="surface" value="${esc(theme.surface)}"></label><label><span>強調色</span><input type="color" name="accent" value="${esc(theme.accent)}"></label><label><span>文字色</span><input type="color" name="text" value="${esc(theme.text || "#22282d")}"></label></div></section>`;
+  return `${heading("SETTINGS", "設定", "アプリ内の設定")}<div class="settings-grid"><form class="settings-card theme-settings" data-theme-form data-theme-mode="${themeMode}"><h2>外見</h2><p>自動モードでは、キャラクターの豆電球が点灯するとページの色が切り替わります。</p>${modeChoices}${batteryFields}${manualFields}<div class="theme-actions"><button class="secondary" type="button" data-theme-reset>初期設定に戻す</button><button class="primary" type="submit">外見を保存</button></div></form>${fontCard}${roots}<section class="settings-card tag-management"><h2>タグ管理 <button class="new-button" data-new-tag>＋ タグ</button></h2><p>分類は「所属・テーマ・チャンネル・プロジェクト・ツール・その他」の6種類で固定されています。</p>${tagTables}</section><section class="settings-card"><h2>ゴミ箱</h2><p>${state.trash.length}件あります。</p>${trash || '<p class="muted">ゴミ箱は空です。</p>'}</section></div>`;
 }
 
 function helpView() {
   const guide = (number, image, title, lead, points = []) => `<article class="help-card"><img src="${image}" alt="${esc(title)}の操作イラスト"><div><span class="help-step">STEP ${number}</span><h2>${esc(title)}</h2><p>${esc(lead)}</p>${points.length ? `<ul>${points.map((point) => `<li>${esc(point)}</li>`).join("")}</ul>` : ""}</div></article>`;
   return `${heading("GUIDE", "使い方", "Todoから計画、実行、分析、資料整理まで")}<div class="help-intro"><strong>基本の流れ</strong><span>Todoに集める → 時間割へ取り込む → タイマーを見ながら実行 → 活動分析で気づきを得る<br>Macでは⌘＋数字、WindowsではCtrl＋数字で切り替えられます。</span></div><div class="help-list">
     ${guide("01", "/assets/help-todo.svg", "Todoへやることを集める", "思いついた作業は、まずTodoへ登録します。", ["名前、期限日、1%刻みの達成度を入力できます。", "タグは分類をまたいで複数選択できます。", "達成度100%になったTodoは通常一覧から消えますが、完了履歴は保存されます。"])}
-    ${guide("02", "/assets/help-timetable.svg", "Todoから時間割を組み立てる", "時間割の「アクションを追加」を押し、新規作成またはTodoカードを選びます。", ["Todoを選ぶと、名前、タグ、達成度が引き継がれ、時間割の日付は本日になります。Todoの期限日はTodo側に保持されます。", "開始時刻は最後の予定終了後の正時に設定され、終了時刻はその1時間後になります。", "場所、メモ、ファイル、本、論文などを追加して保存します。"])}
+    ${guide("02", "/assets/help-timetable.svg", "Todoから時間割を組み立てる", "時間割の「アクションを追加」を押し、新規作成またはTodoカードを選びます。", ["Todoを選ぶと、名前、タグ、達成度が引き継がれ、時間割の日付は本日になります。Todoの期限日はTodo側に保持されます。", "開始時刻は最後の予定終了後の正時に設定され、終了時刻はその1時間後になります。", "場所、メモ、ファイル、本、文書などを追加して保存します。"])}
     ${guide("03", "/assets/help-timer.svg", "タイマーを見ながら実行する", "左下には実行中または次のアクションと、終了・開始までの時間が表示されます。", ["予定時刻を過ぎただけでは実行済みになりません。開始操作をした時刻を実績として記録します。", "完了確認では実績開始・終了、達成度、メモを編集できます。", "終了済みの予定が複数ある場合は、予定順に完了・実行中・未実施を確認します。"])}
     ${guide("04", "/assets/help-calendar.svg", "カレンダーで月・週・日を見る", "Todo、時間割、日記を日付に沿って確認できます。", ["月・週・日の3種類を切り替えられます。", "日表示には、その日の予定・実績・Todo・記録をまとめます。", "時間割のアクションは別の日へドラッグして予定日を変更できます。"])}
     ${guide("05", "/assets/help-daily-record.svg", "活動分析から気づきを得る", "入力作業を増やさず、時間割と実績から自動集計します。", ["予定時間・実績時間・完了率・未実施数を表示します。", "直近7日間とタグ別の時間配分をグラフで確認できます。", "ローカルLLMを設定すると、手動または自動で詳しい分析を追加できます。"])}
     ${guide("06", "/assets/help-worktree.svg", "作業ツリーで活動の履歴をつなぐ", "同じタグが付いた時間割アクションを縦の枝としてつなぎ、活動の流れを整理します。", ["表示する分類・タグを上部で選べます。", "所属、テーマ、プロジェクト、ツールなど複数の観点を重ねられます。", "枝上のアクションを選ぶと編集画面が開きます。"])}
     ${guide("07", "/assets/help-files.svg", "関連ファイルをまとめて探す", "Todoや時間割へ添付したファイルは、自動的にファイル画面の管理対象になります。", ["ファイル名だけでなく、関連するTodo・アクションの名前やタグでも検索できます。", "検索結果から関連アクションを選ぶと、その編集画面が開きます。", "一覧表示時はファイル本体を読まないため、登録数が増えても不要な待ち時間を抑えます。"])}
-    ${guide("08", "/assets/help-library.svg", "本と論文を本棚のように整理", "くらしの本・まなびの本・論文は、それぞれ専用の基準パスから相対パスだけを登録します。", ["Todo・時間割の編集画面でも、資料の検索・タグ絞り込み・新規追加ができます。", "追加直後は赤い印の「未確認」になり、書誌情報を確認してから状態を変更します。", "ローカルLLMは初期状態では無効です。設定画面の手順を完了した場合だけPDFから書誌情報の候補を抽出します。"])}
-    ${guide("09", "/assets/help-file-roots.svg", "種類別の基準パスで場所を管理", "ファイル・くらしの本・まなびの本・論文には、それぞれ別の基準フォルダを設定します。", ["DBに保存するのは「基準パスID＋相対パス」であり、PDFや一般ファイル本体ではありません。", "基準フォルダ外のパスや、外部へ出るシンボリックリンクは拒否します。", "別PCでも各種類に同期済みクラウドフォルダを設定すれば、同じ相対パスで参照できます。"])}
-    ${guide("10", "/assets/help-storage.svg", "共有データとPC固有設定を分ける", "日記・Todo・時間割・資料情報と、基準パスなどのPC固有設定を分離しています。", ["共有データ：SQLite、表紙画像、時間割の添付、バックアップ。保存先はローカルまたはクラウド同期フォルダから選べます。", "PC固有設定：基準パス、ポート、連携トークン。各PCのローカル領域へ保存します。", "クラウドへSQLiteを置く場合は複数PCで同時起動せず、一方を終了して同期完了後にもう一方を起動してください。"])}</div>`;
+    ${guide("08", "/assets/help-library.svg", "本と文書を本棚のように整理", "書籍・文書は、基準パスからの相対パスだけを登録します。", ["Todo・時間割の編集画面でも、資料の検索・タグ絞り込み・新規追加ができます。", "追加直後は赤い印の「未確認」になり、書誌情報を確認してから状態を変更します。", "ローカルLLMは初期状態では無効です。設定画面の手順を完了した場合だけPDFから書誌情報の候補を抽出します。"])}
+    ${guide("09", "/assets/help-file-roots.svg", "基準パスは1か所だけ", "書籍・文書・ファイルは、すべて1つの基準パスからの相対パスで管理します。", ["DBに保存するのは基準パスからの相対パスであり、PDFや一般ファイル本体ではありません。", "基準パスの外や、外部へ出るシンボリックリンクは拒否します。", "基準パスごとフォルダを移動・同期しても、同じ相対パスで参照し続けられます。"])}
+    ${guide("10", "/assets/help-storage.svg", "基準パスは1つのデータセット", "基準パス直下の隠しフォルダ「.TickTockTome」に、IDと主要データをまとめて保存します。", ["データセット：ID、配色・フォント・タグ表示の設定、SQLite、表紙画像、添付、バックアップ。", "このPCだけの設定：現在の基準パス、ポート、連携トークン、ローカルLLMの実行ファイルの場所。", "開いている間は使用中の印を置き、別のPCで同じ基準パスを同時に開かないようにします。"])}</div>`;
 }
 
 function tagVisibilityPanel() {
@@ -261,13 +338,6 @@ function tagVisibilityPanel() {
   return `<aside class="tag-visibility-panel"><header><div><strong>表示するタグ</strong><small>OFFのタグを持つ項目は全画面で非表示</small></div><button data-tag-panel>×</button></header>${state.bootstrap.tagCategories.map((category) => { const tags = state.bootstrap.tags.filter((tag) => tag.categoryId === category.id); return tags.length ? `<section><h3>${esc(category.name)}</h3>${tags.map((tag) => `<label><input type="checkbox" data-visible-tag="${esc(tag.id)}" ${state.hiddenTagIds.has(tag.id) ? "" : "checked"}><span>${esc(tag.name)}</span></label>`).join("")}</section>` : ""; }).join("") || '<p class="muted">タグはまだありません。</p>'}</aside>`;
 }
 
-function rootSetupOverlay() {
-  if (state.rootCheckDismissed || !state.bootstrap) return "";
-  const required = [["files", "ファイル"], ["books", "くらしの本"], ["textbooks", "まなびの本"], ["papers", "論文"]];
-  const problems = required.map(([id, name]) => ({ id, name, root: state.bootstrap.fileRoots.find((root) => root.id === id) })).filter((item) => !item.root || !item.root.available);
-  if (!problems.length) return "";
-  return `<div class="setup-overlay"><section class="setup-dialog"><p class="eyebrow">REFERENCE PATHS</p><h2>基準パスの設定</h2><p>${esc(problems.map((item) => `${item.name}：${item.root ? "見つかりません" : "未設定"}`).join("、"))}</p><p>ファイル本体はTick Tock Tomeへコピーせず、それぞれの基準フォルダからの相対パスだけを保存します。</p><div><button class="secondary" data-dismiss-root-check>あとで</button><button class="primary" data-open-root-setup>設定を確認</button></div></section></div>`;
-}
 
 function defaultActionTimes() {
   const latest=state.dailyActions.reduce((value,item)=>Math.max(value,timeMinutes(item.endTime)),0);
@@ -292,7 +362,7 @@ function drawer() {
   if (state.selectedFile) {
     const item = state.selectedFile, tags = new Map(state.bootstrap.tags.map((tag) => [tag.id, tag.name]));
     const indexed = (item.sourceType || "index") === "index";
-    const sourceName = { managed: "Tick Tock Tomeの管理ファイル", index: "旧ファイル索引", journal: "日記の関連ファイル", upload: "時間割から追加したファイル" }[item.sourceType || "index"] || "関連ファイル";
+    const sourceName = { managed: "Tomeletの管理ファイル", index: "旧ファイル索引", journal: "日記の関連ファイル", upload: "時間割から追加したファイル" }[item.sourceType || "index"] || "関連ファイル";
     const tagEditor = indexed ? `<section><h3>タグ</h3><div class="check-groups file-tag-editor">${state.bootstrap.tags.length ? state.bootstrap.tags.map((tag) => `<label class="check-chip"><input type="checkbox" data-file-tag value="${esc(tag.id)}" ${item.tagIds.includes(tag.id) ? "checked" : ""}><span>${esc(tag.name)}</span></label>`).join("") : "タグはまだありません。"}</div><button class="secondary drawer-save" data-save-file-tags>タグを保存</button></section>` : "";
     const open = item.sourceType === "upload" ? `<a class="primary drawer-open managed-file-open" href="/api/v1/uploads/${esc(item.uploadId)}/content" target="_blank" rel="noopener noreferrer">登録したファイルを開く</a>` : `<button class="primary drawer-open" data-open-root="${esc(item.rootId)}" data-open-path="${esc(item.relativePath)}">OSの標準アプリで開く</button>`;
     return `<div class="overlay" data-close><article class="drawer" data-drawer><button class="close" data-close>×</button><p class="eyebrow">${esc(sourceName)}</p><h2>${esc(item.name)}</h2><p class="authors">${esc(fileKind(item.extension))}</p>${tagEditor}<section><h3>保存している参照情報</h3><dl><div><dt>保存元</dt><dd>${esc(sourceName)}</dd></div><div><dt>種類</dt><dd>${esc(fileKind(item.extension))}</dd></div><div><dt>タグ</dt><dd>${esc(item.tagIds.map((id) => tags.get(id) || id).join("、") || "なし")}</dd></div></dl>${item.relativePath ? `<p class="relative-path">${esc(item.relativePath)}</p>` : ""}</section>${open}<p class="privacy-note">${item.sourceType === "upload" ? "ファイル実体は共有データ保存先にあります。" : "ファイルの存在確認は、このボタンを押したときに行います。"}</p></article></div>`;
@@ -311,34 +381,48 @@ function drawer() {
 
 const navSymbols = {
   books: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H7a2 2 0 0 1-2-2V4Z"/><path d="M7 17h12M8 7h7M8 10h7"/></svg>',
-  textbooks: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5c3-1 6 0 9 2v13c-3-2-6-3-9-2V5Zm18 0c-3-1-6 0-9 2v13c3-2 6-3 9-2V5Z"/></svg>',
   papers: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Z"/><path d="M15 3v5h4M9 12h7M9 15h7M9 18h5"/></svg>',
 };
 const navigationItems = [
-  ["dashboard","⌂","HOME","1"],["todo","✓","Todo","2"],["goals","◎","時間割","3"],["calendar","▦","カレンダー","4"],
-  ["analysis","≋","活動分析","5"],["worktree","⑂","作業ツリー","6"],["files","▱","ファイル","7"],["books",navSymbols.books,"くらしの本","8"],
-  ["textbooks",navSymbols.textbooks,"まなびの本","9"],["papers",navSymbols.papers,"論文","0"],["settings","⚙","設定",""],["help","?","使い方",""]
+  // [ページID, 記号, 日本語の表記, ショートカット番号, 英語の表記]
+  ["dashboard","⌂","ホーム","1","Home"],["todo","✓","やること","2","Todo"],["goals","◎","時間割","3","Schedule"],["calendar","▦","カレンダー","4","Calendar"],
+  ["analysis","≋","活動分析","5","Insights"],["worktree","⑂","作業ツリー","6","Work Tree"],["files","▱","ファイル","7","Files"],["books",navSymbols.books,"書籍","8","Books"],["papers",navSymbols.papers,"文書","9","Documents"],["settings","⚙","設定","0","Settings"],["help","?","使い方","","Help"]
 ];
+// ナビゲーションの表示言語。右上の切替ボタンで、このPCの設定として保存する。
+const navigationLanguage = () => state.bootstrap?.language === "en" ? "en" : "ja";
+const languageToggle = () => `<div class="language-toggle" role="group" aria-label="表示言語 / Language">${[["ja", "日本語"], ["en", "English"]].map(([code, label]) => `<button type="button" data-language="${code}" class="${navigationLanguage() === code ? "active" : ""}" aria-pressed="${navigationLanguage() === code}">${label}</button>`).join("")}</div>`;
 const shortcutModifier = () => state.bootstrap?.platform === "darwin" ? "⌘" : "Ctrl+";
 
 function shell() {
-  const views = { dashboard: dashboardView, goals: goalsView, analysis: analysisView, calendar: calendarView, worktree: workTreeView, search: searchView, files: filesView, books: () => libraryView("book"), textbooks: () => libraryView("textbook"), papers: () => libraryView("paper"), settings: settingsViewV2, help: helpView, todo: () => window.TickTockTomeTodo.view() };
-  return `<main><aside class="sidebar"><div class="brand"><img class="brand-mark" src="/favicon.svg" alt=""><strong>Tick Tock Tome</strong></div><nav>${navigationItems.map(([id, icon, label, shortcut]) => `<button data-view="${id}" class="${state.view === id ? "active" : ""}"><span>${icon}</span><span class="nav-copy"><b>${label}</b><small>${shortcut}</small></span></button>`).join("")}</nav><p class="nav-shortcut-help"><span><kbd>${shortcutModifier()}</kbd>＋番号でページ切替</span><small>11・12は Shift＋9・0</small></p><div id="sidebarTimer" class="sidebar-timer"><span>LOCAL TIME</span><strong>--:--:--</strong></div></aside><section class="workspace"><header class="topbar"><label class="search-wrap"><span>⌕</span><input id="globalSearch" type="search" value="${esc(state.query)}" placeholder="日記・作業履歴・ファイル・資料を検索"><kbd>${shortcutModifier()}K</kbd></label>${state.bootstrap?.memoApp?.installed ? '<button class="visibility-button memo-launch-button" data-open-memo="" aria-label="新しいメモ" title="PopNote!で新しいメモを開く">✎</button>' : ""}<button class="visibility-button ${state.tagPanelOpen ? "active" : ""}" data-tag-panel aria-label="タグ表示設定" title="タグ表示設定">◉</button>${tagVisibilityPanel()}</header><div class="content">${(views[state.view] || dashboardView)()}</div></section></main>${drawer()}${rootSetupOverlay()}${state.notice ? `<div class="notice">${esc(state.notice)}</div>` : ""}`;
+  const views = { dashboard: dashboardView, goals: goalsView, analysis: analysisView, calendar: calendarView, worktree: workTreeView, search: searchView, files: filesView, books: () => libraryView("book"), papers: () => libraryView("paper"), settings: settingsViewV2, help: helpView, todo: () => window.TickTockTomeTodo.view() };
+  return `<main><aside class="sidebar"><div class="brand"><img class="brand-mark" src="/favicon.svg?v=4" alt=""><strong>Tomelet</strong></div><nav>${navigationItems.map(([id, icon, japanese, shortcut, english]) => `<button data-view="${id}" title="${navigationLanguage() === "en" ? japanese : english}" class="${state.view === id ? "active" : ""}"><span>${icon}</span><span class="nav-copy"><b>${navigationLanguage() === "en" ? english : japanese}</b><small>${shortcut}</small></span></button>`).join("")}</nav><p class="nav-shortcut-help"><span><kbd>${shortcutModifier()}</kbd>${navigationLanguage() === "en" ? " + number to switch pages" : "＋番号でページ切替"}</span><small>${navigationLanguage() === "en" ? "Home–Settings: 1–9, 0" : "ホーム〜設定：1〜9・0"}</small></p><div id="sidebarTimer" class="sidebar-timer"><span>LOCAL TIME</span><strong>--:--:--</strong></div></aside><section class="workspace"><header class="topbar"><label class="search-wrap"><span>⌕</span><input id="globalSearch" type="search" value="${esc(state.query)}" placeholder="日記・作業履歴・ファイル・資料を検索"><kbd>${shortcutModifier()}K</kbd></label>${state.bootstrap?.memoApp?.installed ? '<button class="visibility-button memo-launch-button" data-open-memo="" aria-label="新しいメモ" title="PopNote!で新しいメモを開く">✎</button>' : ""}${languageToggle()}<button class="visibility-button ${state.tagPanelOpen ? "active" : ""}" data-tag-panel aria-label="タグ表示設定" title="タグ表示設定">◉</button>${tagVisibilityPanel()}${state.bootstrap?.dataset ? window.TickTockTomeDataset.switcher(state.bootstrap) : ""}</header><div class="content">${(views[state.view] || dashboardView)()}</div></section></main>${drawer()}${state.notice ? `<div class="notice">${esc(state.notice)}</div>` : ""}`;
+}
+
+// HOMEの指標を0から目標値まで数え上げる。
+function countUpHomeMetrics() {
+  const targets = [...app.querySelectorAll(".home-intro [data-count]")];
+  const started = performance.now(), duration = 900;
+  const step = (now) => {
+    const progress = Math.min(1, (now - started) / duration), eased = 1 - (1 - progress) ** 3;
+    targets.forEach((node) => { node.textContent = Math.round(Number(node.dataset.count) * eased); });
+    if (progress < 1) requestAnimationFrame(step);
+  };
+  if (targets.length) requestAnimationFrame(step);
 }
 
 function render() {
+  state.viewEntered = state.lastRenderedView !== state.view;
+  state.lastRenderedView = state.view;
   app.innerHTML = shell();
+  if (state.view === "dashboard" && state.viewEntered) countUpHomeMetrics();
   const form = app.querySelector("[data-action-form]");
   decorateActionForm(form); decorateLibraryView();
   if (form && !form.elements.actionDate) form.insertAdjacentHTML("afterbegin", `<label class="goal-field action-date-field"><span>日付</span><input type="date" name="actionDate" required value="${esc(form.dataset.actionDate || state.goalDate)}"></label>`);
   if(state.view==='goals'){const switcher=app.querySelector('.goal-date-switch');if(switcher&&!switcher.querySelector('[data-goal-today]'))switcher.insertAdjacentHTML('beforeend','<button type="button" data-goal-today>本日</button>');}
   const searchKey=app.querySelector('.search-wrap kbd');if(searchKey)searchKey.textContent=`${shortcutModifier()}F`;
   app.querySelectorAll('.sidebar nav .nav-copy small').forEach(node=>{if(!node.textContent.trim())node.remove();});
-  const shortcutNote=app.querySelector('.nav-shortcut-help small');if(shortcutNote)shortcutNote.textContent='HOME〜論文：1〜9・0';
+  
   if(state.view==='settings'){
-    app.querySelector('.storage-settings')?.remove();
-    const rootGrid=app.querySelector('.purpose-root-grid');
-    if(rootGrid)rootGrid.insertAdjacentHTML('afterbegin',`<article class="primary-data-root"><div><strong>Tick Tock Tomeの主要データ</strong><small>日記、Todo、アクション、本・論文の情報、表紙画像、バックアップを保存</small><code>${esc(state.bootstrap.contentLocation||'標準のローカル保存先')}</code></div><span class="root-state available">保存先</span><button data-choose-content>変更する</button></article>`);
     const tagManagement=app.querySelector('.tag-management');
     const copy=tagManagement?.querySelector('p');if(copy)copy.textContent='分類は「関係・分野・テーマ・プロジェクト・活動・文脈・媒体・その他」の8種類で固定されています。';
     app.querySelectorAll('.tag-category-table').forEach((section,index)=>{const category=state.bootstrap.tagCategories[index];const title=section.querySelector('h3');if(category&&title)title.insertAdjacentHTML('afterend',`<p class="tag-category-description">${esc(category.description||'この分類に合うタグを追加します。')}</p>`);});
@@ -348,11 +432,30 @@ function render() {
     const legend=app.querySelector('.legend');if(legend)legend.innerHTML='<span><i class="kind-dot" style="--activity-color:#3f8d63"></i>アクション</span><span><i class="kind-dot" style="--activity-color:#d85858"></i>未完了Todo</span><span><i class="kind-dot" style="--activity-color:#9b7432"></i>メモ</span><span>日記・作業履歴</span>';
   }
   if(state.view==='help'){
-    const intro=app.querySelector('.help-intro span');if(intro)intro.innerHTML='Todoに集める → 時間割へ取り込む → タイマーを見ながら実行 → 活動分析で気づきを得る<br>HOME〜論文は、Macでは⌘＋1〜9・0、WindowsではCtrl＋1〜9・0で切り替えられます。検索は⌘/Ctrl＋Fです。';
+    const intro=app.querySelector('.help-intro span');if(intro)intro.innerHTML='Todoに集める → 時間割へ取り込む → タイマーを見ながら実行 → 活動分析で気づきを得る<br>HOME〜文書は⌘/Ctrl＋1〜9、設定は⌘/Ctrl＋0で切り替えられます。検索は⌘/Ctrl＋Fです。';
     const list=app.querySelector('.help-list');if(list)list.insertAdjacentHTML('beforeend','<article class="help-card"><div class="help-placeholder">✓</div><div><span class="help-step">STEP 11</span><h2>終了時に実績を振り返る</h2><p>完了ボタンで達成度とメモを記録します。</p><ul><li>100%未満なら、Todoに残すかをその場で選べます。</li><li>Todoへ残す場合の期限日は初期状態で今日です。</li><li>終了時間を過ぎた未処理の予定は、次回起動時に1件ずつ確認します。</li></ul></div></article><article class="help-card"><div class="help-placeholder">⌁</div><div><span class="help-step">STEP 12</span><h2>使い終えたタグをアーカイブする</h2><p>設定のタグ管理から、一時的に選択肢から外せます。</p><ul><li>過去の記録との関係は削除されません。</li><li>右上の一時非表示には、使用中のタグだけが並びます。</li><li>必要になったら設定画面から復元できます。</li></ul></div></article>');
   }
   document.dispatchEvent(new CustomEvent("ticktocktome:navigation-rendered", { detail: { view: state.view } }));
 }
+document.addEventListener("click", async (event) => {
+  const openButton = event.target.closest("[data-open-folder]");
+  const addButton = event.target.closest("[data-action-add-folder]");
+  const removeButton = event.target.closest("[data-action-remove-folder]");
+  if (!openButton && !addButton && !removeButton) return;
+  event.preventDefault();
+  try {
+    if (openButton) { await api.openPath("base", openButton.dataset.openFolder); return; }
+    const form = event.target.closest("[data-action-form]");
+    if (!form) return;
+    const input = actionInput(form);
+    if (addButton) {
+      const picked = await api.pickPath("base", "folder");
+      state.selectedAction = { ...state.selectedAction, ...input, folderPaths: [...new Set([...input.folderPaths, picked.relativePath])] };
+    } else state.selectedAction = { ...state.selectedAction, ...input, folderPaths: input.folderPaths.filter((folder) => folder !== removeButton.dataset.actionRemoveFolder) };
+    render();
+  } catch (error) { notice(error.message); }
+});
+
 function notice(message) { state.notice = message; render(); clearTimeout(notice.timer); notice.timer = setTimeout(() => { state.notice = ""; render(); }, 3800); }
 
 async function loadView(view) {
@@ -360,30 +463,30 @@ async function loadView(view) {
   if (view === "dashboard") await loadHomeSummary();
   if (view === 'todo') await window.TickTockTomeTodo.load();
   if (view === "journal") state.journals = (await api.journals()).items;
-  if (view === "goals") { const [actions, files, books, textbooks, papers] = await Promise.all([api.dailyActions({ date: state.goalDate }), api.files(), api.library("book"), api.library("textbook"), api.library("paper")]); state.dailyActions = actions.items; state.goalFiles = files.items; state.goalLibraryItems = [...books.items, ...textbooks.items, ...papers.items]; state.actionDrafts = []; }
+  if (view === "goals") { const [actions, files, books, papers] = await Promise.all([api.dailyActions({ date: state.goalDate }), api.files(), api.library("book"), api.library("paper")]); state.dailyActions = actions.items; state.goalFiles = files.items; state.goalLibraryItems = [...books.items, ...papers.items]; state.actionDrafts = []; }
   if (view === "analysis") { state.recordActions = (await api.dailyActions({ limit: 2000 })).items; state.analysis = (await api.dailyAnalysis(state.analysisDate)).item; }
   if (view === "calendar") { const [events, actions] = await Promise.all([api.calendar(monthKey(state.month)), api.dailyActions({ limit: 1000 })]); state.calendar = events.items; state.calendarActions = actions.items; await window.TickTockTomeTodo.load(); state.calendarTodos=window.TickTockTomeTodo.items(); }
   if (view === "worktree") state.workTree = (await api.dailyActions({ limit: 1000 })).items;
   if (view === "files") { const result = await api.files(); state.files = result.items; state.fileTotal = result.total; }
-  if (["books", "textbooks", "papers"].includes(view)) state.libraryItems = (await api.library({ books: "book", textbooks: "textbook", papers: "paper" }[view])).items;
+  if (["books", "papers"].includes(view)) state.libraryItems = (await api.library({ books: "book", papers: "paper" }[view])).items;
   if (view === "settings") state.trash = (await api.trash()).items;
   render();
 }
 
 async function loadActionReferences() {
-  const [files, books, textbooks, papers] = await Promise.all([api.files(), api.library("book"), api.library("textbook"), api.library("paper")]);
+  const [files, books, papers] = await Promise.all([api.files(), api.library("book"), api.library("paper")]);
   state.goalFiles = files.items;
-  state.goalLibraryItems = [...books.items, ...textbooks.items, ...papers.items];
+  state.goalLibraryItems = [...books.items, ...papers.items];
 }
 
 async function loadHomeSummary() {
-  const [files, books, textbooks, papers] = await Promise.all([api.files(), api.library("book"), api.library("textbook"), api.library("paper")]);
+  const [files, books, papers] = await Promise.all([api.files(), api.library("book"), api.library("paper")]);
   state.fileTotal = files.total;
-  state.homeLibrary = [...books.items, ...textbooks.items, ...papers.items];
+  state.homeLibrary = [...books.items, ...papers.items];
 }
 
 app.addEventListener("click", async (event) => {
-  const target = event.target.closest("[data-view],[data-journal],[data-file],[data-library],[data-close],[data-new-journal],[data-record-add],[data-new-tag],[data-new-library],[data-new-root],[data-edit-root],[data-edit-journal],[data-edit-library],[data-save-file-tags],[data-open-root],[data-restore],[data-purge],[data-dismiss-root-check],[data-open-root-setup],[data-month],[data-calendar-mode],[data-calendar-shift],[data-calendar-day],[data-calendar-open-day],[data-analysis-day],[data-run-analysis],[data-analysis-suggestion],[data-graph-category],[data-graph-all],[data-library-mode],[data-action-add],[data-action-choice],[data-action-edit],[data-action-delete],[data-draft-delete],[data-goal-day],[data-theme-reset],[data-theme-preset],[data-tag-panel],[data-choose-content],[data-copy-bibtex],[data-action-add-file],[data-action-add-library],[data-open-memo]");
+  const target = event.target.closest("[data-view],[data-journal],[data-file],[data-library],[data-close],[data-new-journal],[data-record-add],[data-new-tag],[data-new-library],[data-new-root],[data-edit-root],[data-edit-journal],[data-edit-library],[data-save-file-tags],[data-open-root],[data-restore],[data-purge],[data-dismiss-root-check],[data-open-root-setup],[data-month],[data-calendar-mode],[data-calendar-shift],[data-calendar-day],[data-calendar-open-day],[data-analysis-day],[data-run-analysis],[data-analysis-suggestion],[data-graph-category],[data-graph-all],[data-library-mode],[data-action-add],[data-action-choice],[data-action-edit],[data-action-delete],[data-draft-delete],[data-goal-day],[data-theme-reset],[data-battery-reset],[data-theme-preset],[data-tag-panel],[data-choose-content],[data-copy-bibtex],[data-action-add-file],[data-action-add-library],[data-open-memo]");
   if (!target) return;
   if (target.hasAttribute("data-close") && event.target.closest("[data-drawer]") && !event.target.closest("button[data-close]")) return;
   try {
@@ -398,10 +501,6 @@ app.addEventListener("click", async (event) => {
     else if (target.dataset.recordAdd) window.TickTockTomeEditor.open(null, target.dataset.recordAdd);
     else if (target.hasAttribute("data-new-tag")) window.TickTockTomeEditor.openTag();
     else if (target.dataset.newLibrary) window.TickTockTomeEditor.openLibrary(target.dataset.newLibrary);
-    else if (target.hasAttribute("data-new-root")) window.TickTockTomeEditor.openRoot(null,target.dataset.newRoot||"files");
-    else if (target.dataset.editRoot) window.TickTockTomeEditor.openRoot(state.bootstrap.fileRoots.find((root) => root.id === target.dataset.editRoot));
-    else if (target.hasAttribute("data-dismiss-root-check")) { state.rootCheckDismissed = true; render(); }
-    else if (target.hasAttribute("data-open-root-setup")) { state.rootCheckDismissed = true; await loadView("settings"); if (!state.bootstrap.fileRoots.length) window.TickTockTomeEditor.openRoot(); }
     else if (target.dataset.month) { state.month = new Date(state.month.getFullYear(), state.month.getMonth() + Number(target.dataset.month), 1); state.calendar = (await api.calendar(monthKey(state.month))).items; render(); }
     else if (target.dataset.calendarMode) { state.calendarMode = target.dataset.calendarMode; render(); }
     else if (target.dataset.calendarShift) { state.weekDate = new Date(state.weekDate.getFullYear(), state.weekDate.getMonth(), state.weekDate.getDate() + Number(target.dataset.calendarShift)); render(); }
@@ -425,7 +524,7 @@ app.addEventListener("click", async (event) => {
     else if (target.dataset.actionChoice) {
       const times=defaultActionTimes(),todo=window.TickTockTomeTodo.items().find(item=>item.id===target.dataset.actionChoice);
       state.actionChooser=false;
-      state.selectedAction={actionDate:localDate(),...times,action:todo?.title||"",location:"",progress:Number(todo?.progress||0),tagIds:todo?.tagIds||[],todoId:todo?.id||"",fileIds:[],managedFileIds:todo?.managedFileIds||[],libraryIds:todo?.libraryIds||[],completions:[],uploads:[]};
+      state.selectedAction={actionDate:localDate(),...times,action:todo?.title||"",location:"",progress:Number(todo?.progress||0),tagIds:todo?.tagIds||[],todoId:todo?.id||"",fileIds:[],managedFileIds:todo?.managedFileIds||[],libraryIds:todo?.libraryIds||[],folderPaths:todo?.folderPaths||[],completions:[],uploads:[]};
       render();
     }
     else if (target.dataset.actionEdit) {
@@ -438,10 +537,8 @@ app.addEventListener("click", async (event) => {
     else if (target.hasAttribute("data-action-add-file")) {
       const form=target.closest("[data-action-form]");
       if(form)state.selectedAction={...state.selectedAction,...actionInput(form)};
-      const root = state.bootstrap.fileRoots.find((entry) => entry.id === "files");
-      if (!root) { notice("設定で「ファイル」の基準パスを先に設定してください。"); return; }
-      const picked = await api.pickPath("files", "file");
-      const result = await api.referenceFile({ rootId: "files", relativePath: picked.relativePath });
+      const picked = await api.pickPath("base", "file");
+      const result = await api.referenceFile({ rootId: "base", relativePath: picked.relativePath });
       state.goalFiles = (await api.files()).items;
       state.selectedAction.managedFileIds = [...new Set([...(state.selectedAction.managedFileIds || []), result.item.id])];
       render(); notice("ファイルを登録し、このアクションへ選択しました。");
@@ -455,13 +552,13 @@ app.addEventListener("click", async (event) => {
     else if (target.dataset.draftDelete) { state.actionDrafts = state.actionDrafts.filter((item) => item._draftId !== target.dataset.draftDelete); render(); }
     else if (target.dataset.actionDelete) { await api.deleteDailyAction(target.dataset.actionDelete, Number(target.dataset.revision)); state.selectedAction = null; await refreshActions(); notice("アクションを削除しました。"); }
     else if (target.dataset.goalDay) { state.goalDate = shiftDate(state.goalDate, Number(target.dataset.goalDay)); state.dailyActions = (await api.dailyActions({ date: state.goalDate })).items; state.actionDrafts = []; render(); }
-    else if (target.hasAttribute("data-theme-reset")) { const result = await api.updateTheme({ revision: state.bootstrap.settingsRevision, theme: themePresets.light }); state.bootstrap.theme = result.theme; state.bootstrap.settingsRevision = result.revision; applyTheme(); render(); notice("配色を初期状態へ戻しました。"); }
-    else if (target.dataset.themePreset) { const preset = themePresets[target.dataset.themePreset]; document.querySelector('[name="background"]').value = preset.background; document.querySelector('[name="surface"]').value = preset.surface; document.querySelector('[name="accent"]').value = preset.accent; document.querySelector('[name="text"]').value = preset.text; }
+    else if (target.hasAttribute("data-battery-reset")) { if (!(await window.TickTockTomeDialog.confirm("ページごとの配色を既定の色に戻しますか？", { okLabel: "戻す" }))) return; const result = await api.updateTheme({ revision: state.bootstrap.settingsRevision, themeMode: state.bootstrap.themeMode || "auto", batteryColors: defaultBatteryColors, theme: state.bootstrap.theme }); Object.assign(state.bootstrap, result); applyBatteryColors(); applyTheme({ powered: true, view: state.view }); render(); notice("ページごとの配色を既定に戻しました。"); }
+    else if (target.hasAttribute("data-theme-reset")) { const result = await api.updateTheme({ revision: state.bootstrap.settingsRevision, themeMode: "auto", batteryColors: defaultBatteryColors, theme: themePresets.light }); Object.assign(state.bootstrap, result); applyBatteryColors(); applyTheme({ powered: true, view: state.view }); render(); notice("外見を初期設定へ戻しました。"); }
+    else if (target.dataset.themePreset) { const preset = themePresets[target.dataset.themePreset]; document.querySelector('[name="background"]').value = preset.background; document.querySelector('[name="surface"]').value = preset.surface; document.querySelector('[name="accent"]').value = preset.accent; document.querySelector('[name="text"]').value = preset.text; const manual = document.querySelector('[name="themeMode"][value="manual"]'); if (manual) { manual.checked = true; manual.closest("[data-theme-form]").dataset.themeMode = "manual"; } }
     else if (target.hasAttribute("data-tag-panel")) { state.tagPanelOpen = !state.tagPanelOpen; render(); }
-    else if (target.hasAttribute("data-choose-content")) { const result = await api.chooseContentLocation({ revision: state.bootstrap.settingsRevision }); state.bootstrap.settingsRevision = result.revision; state.bootstrap.contentLocation = result.contentLocation; render(); notice("共有データをコピーしました。アプリを再起動すると切り替わります。"); }
     else if (target.dataset.openRoot) { await api.openPath(target.dataset.openRoot, target.dataset.openPath); notice("OSの標準アプリで開きました。"); }
     else if (target.dataset.restore) { const type = target.dataset.trashType, label = { library: "資料", memo: "メモ" }[type] || "日記"; await ({ library: api.restoreLibrary, memo: api.restoreMemo }[type] || api.restore)(target.dataset.restore, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を復元しました。`); }
-    else if (target.dataset.purge) { if (!window.confirm("完全削除すると元に戻せません。削除しますか？")) return; const type = target.dataset.trashType, label = { library: "資料", memo: "メモ" }[type] || "日記"; await ({ library: api.purgeLibrary, memo: api.purgeMemo }[type] || api.purge)(target.dataset.purge, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を完全削除しました。`); }
+    else if (target.dataset.purge) { if (!(await window.TickTockTomeDialog.confirm("完全削除すると元に戻せません。削除しますか？", { okLabel: "完全削除", danger: true }))) return; const type = target.dataset.trashType, label = { library: "資料", memo: "メモ" }[type] || "日記"; await ({ library: api.purgeLibrary, memo: api.purgeMemo }[type] || api.purge)(target.dataset.purge, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を完全削除しました。`); }
   } catch (error) { notice(error.message); }
 });
 
@@ -472,7 +569,7 @@ async function openMemoWindow(memoId = "") {
 
 function actionInput(form) {
   const data = new FormData(form);
-  return { actionDate: data.get("actionDate") || form.dataset.actionDate || state.goalDate, startTime: data.get("startTime"), endTime: data.get("endTime"), action: data.get("action"), location: data.get("location"), progress: Number(data.get("progress")), tagIds: data.getAll("tagIds"), fileIds: state.selectedAction?.fileIds || data.getAll("fileIds"), managedFileIds: state.selectedAction?.managedFileIds || data.getAll("managedFileIds"), todoId: data.get('todoId') || state.selectedAction?.todoId || '', libraryIds: state.selectedAction?.libraryIds || data.getAll("libraryIds"), uploadIds: data.getAll("uploadIds"), completions: String(data.get("completions") || "").split("\n").map((value) => value.trim()).filter(Boolean), displayOrder: Number(state.selectedAction?.displayOrder || state.dailyActions.length + 1), ...(form.dataset.actionId ? { revision: Number(form.dataset.revision) } : {}) };
+  return { actionDate: data.get("actionDate") || form.dataset.actionDate || state.goalDate, startTime: data.get("startTime"), endTime: data.get("endTime"), action: data.get("action"), location: data.get("location"), progress: Number(data.get("progress")), tagIds: data.getAll("tagIds"), fileIds: state.selectedAction?.fileIds || data.getAll("fileIds"), managedFileIds: state.selectedAction?.managedFileIds || data.getAll("managedFileIds"), todoId: data.get('todoId') || state.selectedAction?.todoId || '', libraryIds: state.selectedAction?.libraryIds || data.getAll("libraryIds"), uploadIds: data.getAll("uploadIds"), folderPaths: data.getAll("folderPaths"), completions: String(data.get("completions") || "").split("\n").map((value) => value.trim()).filter(Boolean), displayOrder: Number(state.selectedAction?.displayOrder || state.dailyActions.length + 1), ...(form.dataset.actionId ? { revision: Number(form.dataset.revision) } : {}) };
 }
 
 async function refreshActions() {
@@ -501,12 +598,23 @@ app.addEventListener("submit", async (event) => {
     } else if (event.target.matches("[data-theme-form]")) {
       event.preventDefault();
       const data = new FormData(event.target);
-      const result = await api.updateTheme({ revision: state.bootstrap.settingsRevision, theme: { background: data.get("background"), surface: data.get("surface"), accent: data.get("accent"), text: data.get("text") } });
-      state.bootstrap.theme = result.theme;
+      const batteryColors = Object.fromEntries(Object.keys(batteryPageLabels).map((view) => [view, data.get(`battery-${view}`)]));
+      const result = await api.updateTheme({ revision: state.bootstrap.settingsRevision, themeMode: data.get("themeMode"), batteryColors, theme: { background: data.get("background"), surface: data.get("surface"), accent: data.get("accent"), text: data.get("text") } });
+      Object.assign(state.bootstrap, result);
       state.bootstrap.settingsRevision = result.revision;
-      applyTheme();
+      applyBatteryColors();
+      applyTheme({ powered: true, view: state.view });
       render();
-      notice("配色を保存しました。");
+      notice("外見を保存しました。");
+    } else if (event.target.matches("[data-motion-form]")) {
+      event.preventDefault();
+      const data = new FormData(event.target);
+      const result = await api.updateMotion({ revision: state.bootstrap.settingsRevision, illumination: data.has("illumination"), characterSpeed: Number(data.get("characterSpeed")) });
+      Object.assign(state.bootstrap, result);
+      state.bootstrap.settingsRevision = result.revision;
+      applyTheme({ powered: true, view: state.view });
+      render();
+      notice("アニメーションを保存しました。");
     } else if (event.target.matches("[data-font-form]")) {
       event.preventDefault();
       const data = new FormData(event.target);
@@ -553,9 +661,8 @@ app.addEventListener("input", (event) => {
   searchTimer = setTimeout(async () => { try { if (!state.query.trim()) { await loadView("analysis"); return; } state.search = await api.search(state.query); state.view = "search"; render(); document.querySelector("#globalSearch")?.focus(); } catch (error) { notice(error.message); } }, 180);
 });
 async function addPdfToShelf(itemType, file) {
-  const rootId={book:"books",textbook:"textbooks",paper:"papers"}[itemType];
-  if (!rootId) { notice('先に設定で基準パスを登録してください。'); return; }
-  if (file) notice('ブラウザはドロップしたファイルの絶対パスを取得できません。同じPDFを基準フォルダの選択画面から選んでください。');
+  const rootId="base";
+  if (file) notice('ブラウザはドロップしたファイルの絶対パスを取得できません。同じPDFを基準パスの選択画面から選んでください。');
   try {
     const picked=await api.pickPath(rootId,'file');
     const created=await api.referencePdf({itemType,rootId,relativePath:picked.relativePath});
@@ -570,8 +677,12 @@ async function addPdfToShelf(itemType, file) {
   catch (error) { notice(error.message); }
 }
 
-app.addEventListener("change", async (event) => { if (!event.target.matches("[data-visible-tag]")) return; event.target.checked ? state.hiddenTagIds.delete(event.target.dataset.visibleTag) : state.hiddenTagIds.add(event.target.dataset.visibleTag); try { const result = await api.updateTagVisibility({ revision: state.bootstrap.settingsRevision, hiddenTagIds: [...state.hiddenTagIds] }); state.bootstrap.settingsRevision = result.revision; window.__tickTockTomeTodayActions = state.todayActions.filter(visibleByTags); document.dispatchEvent(new CustomEvent("ticktocktome:actions-changed")); if (["books", "textbooks", "papers"].includes(state.view)) await loadView(state.view); else render(); } catch (error) { notice(error.message); } });
+app.addEventListener("change", async (event) => { if (!event.target.matches("[data-visible-tag]")) return; event.target.checked ? state.hiddenTagIds.delete(event.target.dataset.visibleTag) : state.hiddenTagIds.add(event.target.dataset.visibleTag); try { const result = await api.updateTagVisibility({ revision: state.bootstrap.settingsRevision, hiddenTagIds: [...state.hiddenTagIds] }); state.bootstrap.settingsRevision = result.revision; window.__tickTockTomeTodayActions = state.todayActions.filter(visibleByTags); document.dispatchEvent(new CustomEvent("ticktocktome:actions-changed")); if (["books", "papers"].includes(state.view)) await loadView(state.view); else render(); } catch (error) { notice(error.message); } });
 app.addEventListener("change", (event) => { if (event.target.matches("[data-graph-tag]")) { event.target.checked ? state.graphTags.add(event.target.dataset.graphTag) : state.graphTags.delete(event.target.dataset.graphTag); render(); } else if (event.target.matches("[data-action-file-sort]")) { state.actionFileSort = event.target.value; event.target.closest("[data-action-form]").querySelector(".action-file-browser-host").innerHTML = actionFileBrowserContent(state.selectedAction?.managedFileIds || []); } else if (event.target.matches('[name="managedFileIds"]') && state.selectedAction) { const ids = new Set(state.selectedAction.managedFileIds || []); event.target.checked ? ids.add(event.target.value) : ids.delete(event.target.value); state.selectedAction.managedFileIds = [...ids]; } else if (event.target.matches("[data-pdf-input]")) addPdfToShelf(event.target.dataset.pdfInput, event.target.files?.[0]); else if (event.target.closest("[data-action-form]")) refreshGoalClockFromForms(); });
+app.addEventListener("input", (event) => { const input = event.target.closest("[data-library-query]"); if (!input) return; const type = input.dataset.libraryQuery, caret = input.selectionStart, composing = event.isComposing; state.libraryQuery[type] = input.value; if (composing) return; render(); const next = document.querySelector(`[data-library-query="${type}"]`); if (next) { next.focus(); try { next.setSelectionRange(caret, caret); } catch {} } });
+app.addEventListener("compositionend", (event) => { const input = event.target.closest?.("[data-library-query]"); if (!input) return; const type = input.dataset.libraryQuery, caret = input.selectionStart; state.libraryQuery[type] = input.value; render(); const next = document.querySelector(`[data-library-query="${type}"]`); if (next) { next.focus(); try { next.setSelectionRange(caret, caret); } catch {} } });
+app.addEventListener("change", (event) => { const target = event.target; if (target.matches("[data-library-sort]")) { state.librarySort[target.dataset.librarySort] = target.value; render(); } else if (target.matches("[data-library-status]")) { state.libraryStatusFilter[target.dataset.libraryStatus] = target.value; render(); } else if (target.matches("[data-library-filter-tag]")) { const ids = state.libraryTagIds[target.dataset.libraryType]; target.checked ? ids.add(target.dataset.libraryFilterTag) : ids.delete(target.dataset.libraryFilterTag); render(); } });
+app.addEventListener("click", (event) => { const reset = event.target.closest("[data-library-reset]"); if (!reset) return; const type = reset.dataset.libraryReset; state.libraryQuery[type] = ""; state.librarySort[type] = "recommended"; state.libraryStatusFilter[type] = ""; state.libraryTagIds[type].clear(); render(); });
 app.addEventListener("input", (event) => { if (event.target.matches("[data-file-query]")) { state.fileQuery = event.target.value; render(); document.querySelector("[data-file-query]")?.focus(); } });
 app.addEventListener("change", (event) => { if (event.target.matches("[data-file-sort]")) { state.fileSort = event.target.value; render(); } else if (event.target.matches("[data-file-filter-tag]")) { event.target.checked?state.fileTagIds.add(event.target.dataset.fileFilterTag):state.fileTagIds.delete(event.target.dataset.fileFilterTag); render(); } });
 app.addEventListener("change", async (event) => { if(event.target.matches("[data-analysis-date]")){state.analysisDate=event.target.value;state.analysis=(await api.dailyAnalysis(state.analysisDate)).item;render();} });
@@ -587,14 +698,42 @@ document.addEventListener("keydown", async (event) => {
   if(shortcutHeld&&event.key.toLowerCase()==="f"){event.preventDefault();document.querySelector("#globalSearch")?.focus();return;}
   if(shortcutHeld&&!event.altKey){
     const number=event.code.match(/^Digit([0-9])$/)?.[1];
-    const shortcuts={"1":"dashboard","2":"todo","3":"goals","4":"calendar","5":"analysis","6":"worktree","7":"files","8":"books","9":"textbooks","0":"papers"};
+    const shortcuts={"1":"dashboard","2":"todo","3":"goals","4":"calendar","5":"analysis","6":"worktree","7":"files","8":"books","9":"papers","0":"settings"};
     if(number&&shortcuts[number]){event.preventDefault();document.querySelector(`.sidebar nav button[data-view="${shortcuts[number]}"]`)?.click();return;}
   }
   if(event.key==="Escape"&&(state.selected||state.selectedFile||state.selectedLibrary||state.selectedAction||state.actionChooser)){state.selected=null;state.selectedFile=null;state.selectedLibrary=null;state.selectedAction=null;state.actionChooser=false;render();}
 });
 
-function applyTheme() {
-  const theme = state.bootstrap?.theme;
+function blendHex(color, background, colorRatio) {
+  const channels = (value) => [1, 3, 5].map((start) => Number.parseInt(value.slice(start, start + 2), 16));
+  const foreground = channels(color), base = channels(background);
+  return `#${foreground.map((value, index) => Math.round(value * colorRatio + base[index] * (1 - colorRatio)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function luminance(color) {
+  const [r, g, b] = [1, 3, 5].map((start) => Number.parseInt(color.slice(start, start + 2), 16) / 255).map((value) => value <= .03928 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+  return .2126 * r + .7152 * g + .0722 * b;
+}
+
+// ページの色から強調色を作る。白など明るい色でも背景に対して読める濃さ（コントラスト比4.5以上）まで暗くする。
+function readableAccent(color, background) {
+  const contrast = (a, b) => { const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x); return (light + .05) / (dark + .05); };
+  for (let ratio = .82; ratio > 0; ratio -= .06) {
+    const accent = blendHex(color, "#22282d", ratio);
+    if (contrast(accent, background) >= 4.5) return accent;
+  }
+  return "#22282d";
+}
+
+function automaticTheme(view) {
+  const color = state.bootstrap?.batteryColors?.[view] || defaultBatteryColors[view] || "#96968f";
+  const background = blendHex(color, "#ffffff", .13);
+  return { background, surface: blendHex(color, "#ffffff", .23), accent: readableAccent(color, background), text: "#22282d" };
+}
+
+const unlitTheme = { background: "#d7d9d6", surface: "#e0e2df", accent: "#7f8581", text: "#333835" };
+
+function setThemeVariables(theme) {
   if (!theme) return;
   document.documentElement.style.setProperty("--paper", theme.background);
   document.documentElement.style.setProperty("--theme-surface", theme.surface);
@@ -604,6 +743,46 @@ function applyTheme() {
   document.documentElement.style.setProperty("--line", `color-mix(in srgb, ${theme.text || "#22282d"} 18%, ${theme.background})`);
 }
 
+function applyTheme({ powered = false, view = state.view, animate = false, origin = null } = {}) {
+  if (!state.bootstrap) return;
+  const automatic = state.bootstrap.themeMode !== "manual";
+  // 照明演出がオフなら、消灯を挟まずに切り替えと同時にページの色へ変える。
+  const synchronized = state.bootstrap.illumination !== false;
+  if (!synchronized) { powered = true; animate = false; }
+  const theme = automatic ? (powered ? automaticTheme(view) : unlitTheme) : state.bootstrap.theme;
+  // ボタンはページの配色に左右されない固定色。手動モードでは利用者が選んだ強調色を使う。
+  document.documentElement.style.setProperty("--button-accent", automatic ? "#e3654f" : state.bootstrap.theme.accent);
+  if (!automatic) { document.documentElement.classList.remove("theme-unlit"); setThemeVariables(theme); return; }
+  if (!powered) { document.documentElement.classList.add("theme-unlit"); setThemeVariables(theme); return; }
+  // 色が円形に広がるだけの穏やかな演出なので、「視差効果を減らす」設定でも再生する。
+  if (!animate || typeof document.startViewTransition !== "function") { document.documentElement.classList.remove("theme-unlit"); setThemeVariables(theme); return; }
+  if (origin) {
+    document.documentElement.style.setProperty("--theme-origin-x", `${origin.x}px`);
+    document.documentElement.style.setProperty("--theme-origin-y", `${origin.y}px`);
+    const radius = Math.max(...[[0, 0], [innerWidth, 0], [0, innerHeight], [innerWidth, innerHeight]].map(([x, y]) => Math.hypot(x - origin.x, y - origin.y)));
+    document.documentElement.style.setProperty("--theme-reveal-radius", `${Math.ceil(radius) + 2}px`);
+  }
+  document.documentElement.style.setProperty("--theme-light-color", state.bootstrap.batteryColors?.[view] || defaultBatteryColors[view] || "#96968f");
+  document.startViewTransition(() => { document.documentElement.classList.remove("theme-unlit"); setThemeVariables(theme); });
+}
+
+function applyBatteryColors() {
+  const colors = { ...defaultBatteryColors, ...(state.bootstrap?.batteryColors || {}) };
+  for (const [view, color] of Object.entries(colors)) {
+    document.documentElement.style.setProperty(`--power-${view}-strong`, color);
+    document.documentElement.style.setProperty(`--power-${view}-soft`, blendHex(color, "#ffffff", .28));
+  }
+}
+
+document.addEventListener("ticktocktome:navigation-rendered", (event) => {
+  if (state.bootstrap && state.bootstrap.illumination === false) applyTheme({ powered: true, view: event.detail?.view || state.view });
+});
+
+document.addEventListener("ticktocktome:power-change", (event) => {
+  if (state.bootstrap?.illumination === false) return;
+  applyTheme({ powered: Boolean(event.detail?.powered), view: event.detail?.view || state.view, animate: Boolean(event.detail?.powered), origin: event.detail?.origin });
+});
+
 function applyFont() {
   document.documentElement.dataset.font = state.bootstrap?.fontPreset || "classic";
 }
@@ -611,8 +790,11 @@ function applyFont() {
 async function initialize(view = "dashboard") {
   state.bootstrap = await api.bootstrap();
   window.__tickTockTomeBootstrap = state.bootstrap;
+  window.TickTockTomeI18n.setLanguage(state.bootstrap.language);
+  if (state.bootstrap.setupRequired) { applyBatteryColors(); applyFont(); window.TickTockTomeDataset.renderSetup(app, state.bootstrap); return; }
   await window.TickTockTomeTodo.load();
-  applyTheme();
+  applyBatteryColors();
+  applyTheme({ powered: false, view });
   applyFont();
   state.hiddenTagIds = new Set(state.bootstrap.hiddenTagIds || []);
   const validTags = new Set(state.bootstrap.tags.map((tag) => tag.id));
@@ -623,7 +805,7 @@ async function initialize(view = "dashboard") {
   state.recentActions = (await api.dailyActions({ from: weekStart(), to: shiftDate(weekStart(), 6), limit: 1000 })).items;
   await loadHomeSummary();
   window.__tickTockTomeTodayActions = state.todayActions.filter(visibleByTags);
-  if (view === "goals") { const [files, books, textbooks, papers] = await Promise.all([api.files(), api.library("book"), api.library("textbook"), api.library("paper")]); state.goalDate = localDate(); state.dailyActions = state.todayActions; state.goalFiles = files.items; state.goalLibraryItems = [...books.items, ...textbooks.items, ...papers.items]; state.actionDrafts = []; }
+  if (view === "goals") { const [files, books, papers] = await Promise.all([api.files(), api.library("book"), api.library("paper")]); state.goalDate = localDate(); state.dailyActions = state.todayActions; state.goalFiles = files.items; state.goalLibraryItems = [...books.items, ...papers.items]; state.actionDrafts = []; }
   if (view === "analysis") { state.recordActions = (await api.dailyActions({ limit: 2000 })).items; state.analysis=(await api.dailyAnalysis(state.analysisDate)).item; }
   if (view === "calendar") { const [events, actions] = await Promise.all([api.calendar(monthKey(state.month)), api.dailyActions({ limit: 1000 })]); state.calendar = events.items; state.calendarActions = actions.items; await window.TickTockTomeTodo.load(); state.calendarTodos=window.TickTockTomeTodo.items(); }
   if (view === "worktree") state.workTree = (await api.dailyActions({ limit: 1000 })).items;
@@ -655,15 +837,18 @@ app.addEventListener('input',event=>{
   if(event.target.matches('[data-action-library-search]')) {state.actionResourceQueries[event.target.dataset.actionLibrarySearch]=event.target.value;updateResourceLists(event.target.closest('[data-action-form]'));}
 });
 app.addEventListener('change',event=>{
+  if(event.target.matches('[data-theme-form] [name="themeMode"]')){event.target.closest('[data-theme-form]').dataset.themeMode=event.target.value;return;}
   const form=event.target.closest('[data-action-form]');if(!form)return;
   if(event.target.matches('[data-action-resource-tag]')){state.actionTagId=event.target.value;updateResourceLists(form);}
   if(event.target.matches('[name="libraryIds"]')&&state.selectedAction){const ids=new Set(state.selectedAction.libraryIds||[]);event.target.checked?ids.add(event.target.value):ids.delete(event.target.value);state.selectedAction.libraryIds=[...ids];}
 });
 app.addEventListener('click',event=>{const button=event.target.closest('[data-reference-pdf]');if(button){event.preventDefault();addPdfToShelf(button.dataset.referencePdf,null);}});
 app.addEventListener('click',async event=>{
+  const languageButton=event.target.closest('[data-language]');
+  if(languageButton){if(languageButton.dataset.language===navigationLanguage())return;try{await api.updateLanguage({revision:state.bootstrap.settingsRevision,language:languageButton.dataset.language});location.reload();}catch(error){notice(error.message);}return;}
   const todayButton=event.target.closest('[data-goal-today]');
   if(todayButton){state.goalDate=localDate();state.dailyActions=(await api.dailyActions({date:state.goalDate})).items;state.actionDrafts=[];render();return;}
   const archive=event.target.closest('[data-tag-archive],[data-tag-restore]');
   if(archive){try{await api.setTagArchived(archive.dataset.tagArchive||archive.dataset.tagRestore,archive.hasAttribute('data-tag-archive'),Number(archive.dataset.revision));await initialize('settings');notice(archive.hasAttribute('data-tag-archive')?'タグをアーカイブしました。':'タグを復元しました。');}catch(error){notice(error.message);}}
 });
-initialize().catch((error) => { app.innerHTML = `<section class="error-screen"><p class="eyebrow">LOAD ERROR</p><h1>Tick Tock Tomeを読み込めませんでした。</h1><p>ランチャーから開き直してください。</p><code>${esc(error.message)}</code></section>`; });
+initialize().catch((error) => { app.innerHTML = `<section class="error-screen"><p class="eyebrow">LOAD ERROR</p><h1>Tomeletを読み込めませんでした。</h1><p>ランチャーから開き直してください。</p><code>${esc(error.message)}</code></section>`; });

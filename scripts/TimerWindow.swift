@@ -13,13 +13,13 @@ import Foundation
 final class TimerDelegate: NSObject, NSApplicationDelegate {
     var panel: NSPanel!
     let value = NSTextField(labelWithString: "--:--:--")
-    let detail = NSTextField(labelWithString: "Tick Tock Tome")
-    let completeButton = NSButton(title: "完了", target: nil, action: nil)
-    let offButton = NSButton(title: "常駐OFF", target: nil, action: nil)
+    let detail = NSTextField(labelWithString: "Tomelet")
+    let completeButton = NSButton(title: TimerText.done, target: nil, action: nil)
+    let offButton = NSButton(title: TimerText.pinnedOff, target: nil, action: nil)
     var polling = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = NSPanel(contentRect: NSRect(x: 18, y: 18, width: 300, height: 150), styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.title = "Tick Tock Tome Timer"
+        panel.title = "Tomelet Timer"
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isFloatingPanel = true
@@ -57,7 +57,7 @@ final class TimerDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.polling = false
-                guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { self.detail.stringValue = "Tick Tock Tomeに接続できません"; return }
+                guard let data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { self.detail.stringValue = TimerText.offline; return }
                 let active = json["active"] as? [String: Any]
                 let upcoming = json["upcoming"] as? [String: Any]
                 self.completeButton.isHidden = active == nil
@@ -69,9 +69,19 @@ final class TimerDelegate: NSObject, NSApplicationDelegate {
                         let seconds = max(0, parts[0] * 3600 + parts[1] * 60 - current)
                         self.value.stringValue = String(format: "%02d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60)
                     }
-                    self.detail.stringValue = (active == nil ? "次｜" : "実行中｜") + (item["action"] as? String ?? "")
+                    self.detail.stringValue = (active == nil ? TimerText.next : TimerText.running) + (item["action"] as? String ?? "")
                 } else { self.value.stringValue = json["localTime"] as? String ?? "--:--:--"; self.detail.stringValue = "LOCAL TIME" }
             }
         }.resume()
     }
+}
+
+// 起動時の2番目の引数で表示言語を受け取る（"en" なら英語）。
+enum TimerText {
+    static let english = CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "en"
+    static let done = english ? "Done" : "完了"
+    static let pinnedOff = english ? "Unpin" : "常駐OFF"
+    static let offline = english ? "Can't connect to Tomelet" : "Tomeletに接続できません"
+    static let next = english ? "Next | " : "次｜"
+    static let running = english ? "Running | " : "実行中｜"
 }

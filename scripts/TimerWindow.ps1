@@ -3,7 +3,7 @@ if ($Port -lt 1024 -or $Port -gt 65535) { exit 1 }
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Tick Tock Tome Timer'
+$form.Text = 'Tomelet Timer'
 $form.Size = New-Object System.Drawing.Size(320,200)
 $form.TopMost = $true
 $form.StartPosition = 'Manual'
@@ -47,7 +47,7 @@ $timer.Add_Tick({
    $value.Text = $left.ToString('hh\:mm\:ss')
    $detail.Text = $prefix + $item.action
   } else { $value.Text=$data.localTime; $detail.Text='LOCAL TIME' }
- } catch { $detail.Text='Tick Tock Tome connection unavailable' }
+ } catch { $detail.Text='Tomelet connection unavailable' }
 })
 $timer.Start()
 [System.Windows.Forms.Application]::Run($form)

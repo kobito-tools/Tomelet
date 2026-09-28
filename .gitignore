@@ -19,6 +19,7 @@ integrations.json
 *.log
 
 # Generated application bundles and local dependencies
+Tomelet.app/
 TickTockTome.app/
 DailyLog.app/
 vendor/katex/
@@ -26,3 +27,6 @@ vendor/katex/
 # Test and coverage output
 coverage/
 .test-output/
+
+# Base-path dataset folder (created inside the user's chosen base path, never in this repository)
+.TickTockTome/

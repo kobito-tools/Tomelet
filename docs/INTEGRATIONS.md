@@ -2,11 +2,11 @@
 
 ## 最初に全体像
 
-APIは、Tick Tock Tomeへ決められた形式で依頼を渡す「専用受付」です。他アプリがSQLiteを直接開くことはありません。
+APIは、Tomeletへ決められた形式で依頼を渡す「専用受付」です。他アプリがSQLiteを直接開くことはありません。
 
 ```text
 Activity Logger ──作業履歴──┐
-将来の外部アプリ ──限定データ──┼→ 認証付きローカルAPI → 検証 → Tick Tock TomeのSQLite
+将来の外部アプリ ──限定データ──┼→ 認証付きローカルAPI → 検証 → TomeletのSQLite
 Command Center ─検索・日記───┤
 PopNote! ─────メモ──────────┘
 ```
@@ -14,14 +14,14 @@ PopNote! ─────メモ──────────┘
 | 相手 | できること | できないこと |
 |---|---|---|
 | Activity Logger | 作業履歴の追加・更新 | 日記の読取・変更 |
-| 将来のファイル連携アダプター | 現時点では未実装 | Tick Tock Tomeは外部索引を前提にせず、Todo・時間割から管理ファイルを登録 |
+| 将来のファイル連携アダプター | 現時点では未実装 | Tomeletは外部索引を前提にせず、Todo・時間割から管理ファイルを登録 |
 | Command Center | 検索、日付指定、日記作成 | 作業履歴の変更 |
-| PopNote! | メモの作成・更新・削除、メモ用タグの作成、画像添付、「ファイル」基準パスからの添付 | 日記・時間割・設定の読取・変更 |
+| PopNote! | メモの作成・更新・削除、メモ用タグの作成、画像添付、基準パス内のファイルの添付 | 日記・時間割・設定の読取・変更 |
 
 ## 共通ルール
 
 - 接続先は既定で`http://127.0.0.1:3174`。
-- Tick Tock Tomeが停止中なら接続エラーにし、相手側で後から再送する。
+- Tomeletが停止中なら接続エラーにし、相手側で後から再送する。
 - 実トークンは個人データ領域の`config/integrations.json`だけに保存する。
 - `Authorization: Bearer <そのアプリ用トークン>`をHTTPヘッダーへ付ける。
 - 送信する`source.id`は、そのトークンに登録されたアプリIDと同じにする。
@@ -45,7 +45,7 @@ PopNote! ─────メモ──────────┘
       "endedAt": "2026-01-15T09:30:00+09:00",
       "applicationName": "Example Editor",
       "windowTitle": "Example document",
-      "rootId": "documents",
+      "rootId": "base",
       "relativePath": "Example/document.txt",
       "projectName": "Example Project",
       "sourceRevision": 1,
@@ -55,11 +55,13 @@ PopNote! ─────メモ──────────┘
 }
 ```
 
-`filePath`の絶対パスは送りません。ファイルを表す場合は`rootId + relativePath`を使います。
+`filePath`の絶対パスは送りません。ファイルを表す場合は、`rootId: "base"` と基準パスからの相対パス（`relativePath`）を使います。基準パスは1か所だけで、Tomeletが現在開いている基準パスのデータへ保存されます（[基準パスの一本化](BASE_PATH_FOR_COMPANIONS.md)）。
+
+旧版の種類別ID（`files`・`books`・`papers`など）で送った場合も、移行時に基準パスの中にあった場所なら、基準パスからの相対パスへ自動で読み替えます。
 
 ## 旧File Indexer互換API
 
-新しいTick Tock TomeはFile Indexerを前提にしません。一般ファイルはTodo・時間割の編集画面から登録します。以下は旧版の既存データや自作連携を壊さないために残している互換仕様で、新規セットアップでは専用トークンを生成しません。
+新しいTomeletはFile Indexerを前提にしません。一般ファイルはTodo・時間割の編集画面から登録します。以下は旧版の既存データや自作連携を壊さないために残している互換仕様で、新規セットアップでは専用トークンを生成しません。
 
 `POST /api/v1/integrations/file-index:batch`
 
@@ -69,7 +71,7 @@ PopNote! ─────メモ──────────┘
   "items": [
     {
       "externalId": "file-example-001",
-      "rootId": "documents",
+      "rootId": "base",
       "relativePath": "Example/document.txt",
       "name": "document.txt",
       "extension": ".txt",
@@ -118,21 +120,26 @@ curl -H "Authorization: Bearer REPLACE_WITH_PRIVATE_TOKEN" "http://127.0.0.1:317
 
 ## PopNote!
 
-PopNote! はトークンを手で設定しません。初回起動時に `node scripts/companion-connect.js popnote` を実行し、`config/integrations.json` へ `memo:read`・`memo:write` 権限のトークンを登録します。このスクリプトはサーバーを本体ウィンドウなしで起動し、`{"port", "token"}` を標準出力へ返します。
+基準パスの扱いと、メモの保存先に関する仕様変更は[BASE_PATH_FOR_COMPANIONS.md](BASE_PATH_FOR_COMPANIONS.md)にまとめています。
+
+PopNote! はトークンを手で設定しません。本体が起動しているときに `node scripts/companion-connect.js popnote --no-launch` を実行し、`config/integrations.json` へ `memo:read`・`memo:write` 権限のトークンを登録します（登録済みなら同じトークン）。このスクリプトは `{"port", "token"}` を標準出力へ返します。`--no-launch` を付けない場合は、サーバーを本体ウィンドウなしで起動してから返します。
+
+書き込み・読み取りに `X-TickTockTome-Dataset: <データセットキー>` を付けると、本体が開いているデータセットと違う場合に409（`{"code": "dataset-mismatch", "current": {"id", "key"}}`）を返して処理しません。
 
 GETは`memo:read`、それ以外は`memo:write`が必要です。パスはすべて `/api/v1/integrations/memo/` からの相対です。
 
 | メソッド・パス | 内容 |
 |---|---|
-| `GET context` | タグ、タグ分類、基準パスの利用可否 |
-| `GET memos?q=` | メモ一覧（見出し・本文・タグ名で検索） |
+| `GET context` | 開いているデータセット（`dataset: {id, key, basePath}`）、タグ、タグ分類、基準パス（`base`）の利用可否 |
+| `GET memos?q=&from=&to=` | メモ一覧（見出し・本文・タグ名で検索。`from`・`to` は作成日時の範囲で、ISO形式のUTC） |
 | `GET memos/<id>` | メモ本文、タグ、添付 |
 | `POST memos` | メモ作成。`createdAt` を省略すると現在時刻 |
 | `PUT memos/<id>` | メモ更新。`revision` が古い場合は409 |
 | `DELETE memos/<id>` | ゴミ箱へ移動（`{"revision"}`） |
 | `POST tags` | `{"name"}` と同名のタグを返し、無ければ「その他」に作成 |
 | `POST uploads` | 画像を保存（`{"name","mimeType","base64"}`、25MBまで） |
-| `POST files:pick` | 「ファイル」基準フォルダの選択画面を開き、選んだファイルを登録 |
+| `POST files:pick` | 基準パス内のファイル選択画面を開き、選んだファイルを登録 |
+| `POST files:reference` | `{"relativePath"}` の基準パス内のファイルを登録（連携アプリ側で選んだ場合） |
 | `POST files/<id>:open` | 登録済みファイルをOS標準アプリで開く |
 
 ```json

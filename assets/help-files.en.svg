@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 300" role="img" aria-labelledby="t d">
+  <title id="t">Managed files</title><desc id="d">Finding attached files by related work</desc>
+  <rect width="620" height="300" fill="#f7f4ed"/><text x="28" y="38" font-family="serif" font-size="20" fill="#292d2d">Files</text>
+  <rect x="28" y="58" width="360" height="34" rx="3" fill="#fff" stroke="#c9c3b8"/><text x="44" y="80" font-family="sans-serif" font-size="11" fill="#858b89">Search by name, tag, or work</text><rect x="404" y="58" width="188" height="34" rx="3" fill="#fff" stroke="#c9c3b8"/><text x="421" y="80" font-family="sans-serif" font-size="11" fill="#292d2d">Newest added  ⌄</text>
+  <g font-family="sans-serif"><path d="M28 118h564M28 172h564M28 226h564M28 270h564" stroke="#d8d3ca"/><text x="42" y="144" font-size="13">report.pdf</text><text x="310" y="144" font-size="10" fill="#6d7473">Schedule: Write the report</text><text x="42" y="198" font-size="13">notes.md</text><text x="310" y="198" font-size="10" fill="#6d7473">Todo: Write reading notes</text><text x="42" y="252" font-size="13">figure.png</text><text x="310" y="252" font-size="10" fill="#6d7473">Tag: Project A</text></g>
+</svg>

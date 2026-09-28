@@ -30,11 +30,20 @@ function restChild() {
   setChildPosition({ x: position.x + 10, y: position.y - 25 });
 }
 
+function announcePower(powered, view = connectedView) {
+  if (!position) return;
+  document.dispatchEvent(new CustomEvent("ticktocktome:power-change", { detail: {
+    powered, view, origin: { x: position.x + geometry.beanWidth / 2, y: position.y + geometry.beanHeight / 2 },
+  } }));
+}
+
 async function moveTo(target, token) {
   const start = { ...position };
   const finish = { x: target.x, y: target.y };
   const distance = Math.hypot(finish.x - start.x, finish.y - start.y);
-  const duration = distance / 0.15;
+  // 歩く速さは設定画面で選んだ値（px/秒）。未設定なら毎秒150px。
+  const speed = (Number(window.__tickTockTomeBootstrap?.characterSpeed) || 150) / 1000;
+  const duration = distance / speed;
   if (!duration) { setPosition(finish); return token === motionToken; }
   bean.setRunning(true);
   bean.setChildChasing(true);
@@ -70,6 +79,7 @@ async function connectTo(view) {
   if (token !== motionToken) return;
   bean.setConnected(false);
   bean.setPowered(false);
+  announcePower(false, view);
   bean.setPhase();
   connectedView = null;
   if (!position) setPosition(target);
@@ -80,6 +90,7 @@ async function connectTo(view) {
   if (token !== motionToken) return;
   bean.setConnected(true);
   bean.setPowered(true, target.color);
+  announcePower(true, view);
   bean.setPhase();
   connectedView = view;
   requestedView = null;
@@ -96,6 +107,7 @@ function initialize() {
   bean.setPowered(true, target.color);
   restChild();
   connectedView = active.dataset.view;
+  announcePower(true, connectedView);
 }
 
 document.addEventListener("click", (event) => {
@@ -107,6 +119,7 @@ document.addEventListener("ticktocktome:navigation-rendered", (event) => {
   const view = event.detail?.view;
   requestAnimationFrame(() => {
     if (!position) initialize();
+    else if (view && view !== connectedView && view !== requestedView) connectTo(view);
   });
 });
 

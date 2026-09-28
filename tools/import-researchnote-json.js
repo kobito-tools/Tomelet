@@ -4,7 +4,7 @@ const { createHash, randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { openDatabase, transaction } = require("../scripts/database/connection.js");
-const { ensurePrivateDirectories, pathsFor } = require("../scripts/settings.js");
+const { activePaths, ensurePrivateDirectories } = require("../scripts/settings.js");
 const { safeRelativePath } = require("../scripts/services/journal-service.js");
 
 const projectRoot = path.resolve(__dirname, "..");
@@ -112,7 +112,7 @@ function cli() {
   const sourceIndex = args.indexOf("--source");
   const rootIndex = args.indexOf("--root-id");
   if (sourceIndex < 0 || !args[sourceIndex + 1]) throw new Error("--source <ResearchNoteのdataフォルダ> を指定してください。");
-  const runtimePaths = pathsFor();
+  const runtimePaths = activePaths();
   ensurePrivateDirectories(runtimePaths);
   const result = importResearchNote({ sourceDirectory: args[sourceIndex + 1], databasePath: runtimePaths.databasePath, rootId: rootIndex >= 0 ? args[rootIndex + 1] || "" : "" });
   console.log(JSON.stringify(result, null, 2));

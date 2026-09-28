@@ -1,6 +1,6 @@
-# Tick Tock Tome bundled fonts
+# Tomelet bundled fonts
 
-Tick Tock Tome ships the following fonts so its appearance does not depend on fonts installed in the operating system.
+Tomelet ships the following fonts so its appearance does not depend on fonts installed in the operating system.
 
 - Noto Sans Japanese: `NotoSansJP.ttf`
 - Rounded M+ 1c: `RoundedMplus1c-Regular.ttf`

@@ -82,6 +82,7 @@ button.simple-row{cursor:pointer}
 
 /* Theme settings */
 .theme-settings{grid-column:1/-1}.theme-fields{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0}.theme-fields label{display:grid;grid-template-columns:1fr 48px;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);font-size:9px}.theme-fields input{width:48px;height:32px;padding:2px;border:0;background:transparent}
+.theme-mode-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0;padding:0;border:0}.theme-mode-options legend{margin-bottom:9px;font-size:9px;font-weight:800}.theme-mode-options label{display:flex;align-items:center;gap:10px;padding:14px;border:1px solid var(--line);border-radius:7px;background:var(--paper);cursor:pointer}.theme-mode-options label:has(input:checked){border-color:var(--coral);box-shadow:0 0 0 2px color-mix(in srgb,var(--coral) 20%,transparent)}.theme-mode-options span,.theme-mode-options b,.theme-mode-options small{display:block}.theme-mode-options small{margin-top:4px;color:var(--muted);font-size:8px}.battery-color-settings,.manual-theme-settings{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}.battery-color-settings h3,.manual-theme-settings h3{margin:0;font-size:13px}.battery-color-settings>p{color:var(--muted);font-size:8px}.battery-color-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:8px;margin-top:13px}.battery-color-grid label{display:grid;grid-template-columns:1fr 42px;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);background:var(--paper);font-size:8px}.battery-color-grid input{width:42px;height:30px;padding:1px;border:0;background:transparent}.theme-settings[data-theme-mode="auto"] .manual-theme-settings{opacity:.48}.theme-settings[data-theme-mode="manual"] .battery-color-settings{opacity:.62}
 
 @media(max-width:1000px){.sidebar-timer{padding-right:0;padding-left:0;text-align:center}.sidebar-timer span{font-size:6px}.sidebar-timer strong{font-size:8px}.sidebar-timer small{display:none}.dashboard-overview{grid-template-columns:1fr}}
 @media(max-width:700px){.goal-date-switch{grid-template-columns:80px minmax(0,1fr) 80px}.goal-time-fields,.goal-two-fields,.theme-fields{grid-template-columns:1fr}.goal-action-card{padding:24px 16px}.daily-record-card>header{align-items:flex-start;gap:12px}.daily-record-counts{flex-direction:column;gap:3px}.sidebar-timer{margin-top:auto}.sidebar-timer strong{font-size:7px}}
@@ -96,6 +97,14 @@ button.simple-row{cursor:pointer}
 .sidebar-timer small{margin-top:7px;font-size:9px}
 .sidebar-timer.is-countdown{border-color:color-mix(in srgb,var(--coral) 35%,var(--line))}
 .theme-actions{display:flex;justify-content:flex-end;gap:8px}
+
+:root{--theme-origin-x:75px;--theme-origin-y:120px;--theme-light-color:#96968f}
+/* ルート要素のfilterは固定配置の包含ブロックを作らないため、サイドバーがページ高へ伸びない */
+html.theme-unlit{filter:grayscale(1) saturate(0) brightness(.96)}
+::view-transition-old(root){animation:none;z-index:1}
+::view-transition-new(root){z-index:2;animation:page-theme-illumination 2s cubic-bezier(.3,.2,.4,1) both}
+/* 光の輪はキャラクターから画面の一番遠い角まで、途中で緩まずに1回の曲線で広がる */
+@keyframes page-theme-illumination{from{clip-path:circle(0 at var(--theme-origin-x) var(--theme-origin-y))}to{clip-path:circle(var(--theme-reveal-radius,150vmax) at var(--theme-origin-x) var(--theme-origin-y))}}
 @media(max-width:1000px){.sidebar-timer{padding:11px 3px}.sidebar-timer strong{font-size:12px}.daily-record-head-actions{align-items:flex-end;flex-direction:column;gap:8px}}
 
 /* Grouped action tags and links */
@@ -139,6 +148,8 @@ button.simple-row{cursor:pointer}
 .help-list{display:grid;gap:24px;margin-top:30px}.help-card{display:grid;grid-template-columns:minmax(280px,.9fr) minmax(240px,1fr);gap:28px;align-items:center;padding:20px;border:1px solid var(--line);background:var(--theme-surface,#eeebe4)}.help-card img{width:100%;border:1px solid var(--line);background:var(--paper)}.help-card h2{margin:0;font:500 23px Georgia,"Yu Mincho",serif}.help-card p{color:var(--muted);font-size:10px;line-height:1.9}
 .action-date-field{margin-bottom:12px}.action-date-field input{max-width:220px}
 @media(max-width:800px){.forklift-yard,.help-card{grid-template-columns:1fr}.forklift-stage{min-height:180px}.weekly-stacks{left:90px}.week-grid{grid-template-columns:repeat(7,130px)}.theme-fields{grid-template-columns:1fr 1fr}}
+@media(max-width:800px){.battery-color-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.theme-mode-options,.battery-color-grid{grid-template-columns:1fr}}
 .goal-link{display:grid;grid-template-columns:auto minmax(0,1fr) auto}.goal-link button{border:0;background:transparent;color:var(--coral);font-size:8px;cursor:pointer}
 .sidebar-timer{padding:16px 10px 15px}.sidebar-timer strong{font-size:31px;font-variant-numeric:tabular-nums;letter-spacing:-.065em;white-space:nowrap}.sidebar-timer small{min-height:14px;margin-top:8px;overflow:visible;color:var(--ink);font-size:10px;font-weight:600;line-height:1.4;white-space:normal;text-overflow:clip}.sidebar-timer.is-countdown small{color:var(--coral)}
 .storage-settings{grid-column:1/-1}
@@ -176,3 +187,144 @@ button.simple-row{cursor:pointer}
 @media(max-width:900px){.analysis-summary{grid-template-columns:1fr 1fr}.analysis-grid{grid-template-columns:1fr}}@media(max-width:600px){.action-outcome{grid-template-columns:1fr}.actual-time-fields,.analysis-summary{grid-template-columns:1fr}.analysis-llm{display:block}.analysis-llm button{margin-top:12px}}
 .analysis-llm{display:grid;gap:14px}.analysis-llm.empty{grid-template-columns:1fr auto;align-items:start}@media(max-width:600px){.analysis-llm.empty{grid-template-columns:1fr}}
 .calendar-day-detail>header{display:flex;align-items:center;justify-content:space-between;gap:16px}.calendar-day-detail>header .new-button{flex:0 0 auto}@media(max-width:600px){.calendar-day-detail>header{align-items:flex-start;flex-direction:column}}
+/* サイドバーのロゴ：サイドバー幅に収まるサイズへ */
+#app .sidebar .brand{gap:9px;margin-left:4px;margin-right:4px;min-width:0}
+#app .sidebar .brand-mark{width:34px;height:34px}
+#app .sidebar .brand strong{font-size:18px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis}
+/* 書籍・論文：キーワード検索・並び替え・タグ絞り込み */
+.library-toolbar{grid-template-columns:minmax(220px,1fr) 170px 130px auto auto;margin:18px 0 22px}
+.library-toolbar .paper-count strong small{font-size:.5em;color:var(--muted)}
+.library-toolbar .library-filter-reset{height:38px;padding:0 14px;font-size:9px;white-space:nowrap}
+.journal-empty .secondary[data-library-reset]{margin-top:10px}
+@media(max-width:900px){.library-toolbar{grid-template-columns:1fr 1fr}.library-toolbar input[type=search]{grid-column:1/-1}}
+/* 基準パス（データセット）の設定・切替 */
+.dataset-setup{display:grid;min-height:100vh;place-items:center;padding:22px;background:var(--theme-background,var(--paper))}
+.dataset-setup-mark{width:52px;height:52px;margin-bottom:18px}
+.dataset-path{display:block;margin:10px 0 16px;padding:9px 11px;overflow-wrap:anywhere;border:1px solid var(--line);background:var(--paper);color:var(--ink);font:9px/1.6 var(--font-geist-mono)}
+.dataset-popup .setup-dialog>p:not(.eyebrow){margin:12px 0 16px}
+.dataset-popup .setup-dialog>div{margin-top:22px}
+.dataset-popup-error:empty{display:none}
+.dataset-field{display:grid;gap:7px;margin:14px 0}.dataset-field span{font-size:9px;font-weight:700}.dataset-field input{height:40px;padding:0 12px;border:1px solid var(--line);background:var(--paper);font-size:13px}
+.dataset-check{display:flex;gap:10px;align-items:flex-start;margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--paper);cursor:pointer}.dataset-check b,.dataset-check small{display:block}.dataset-check b{font-size:11px}.dataset-check small{margin-top:4px;color:var(--muted);font-size:8px;line-height:1.7}.dataset-check input{margin-top:2px}
+.dataset-warning{padding:10px 12px;border-left:3px solid var(--coral);color:var(--ink)!important;background:color-mix(in srgb,var(--coral) 10%,transparent)}
+.dataset-settings{grid-column:1/-1}
+.dataset-summary{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.6fr);gap:14px;align-items:end;margin-top:16px}.dataset-summary>div>span,.dataset-id-form span{display:block;margin-bottom:6px;font-size:9px;font-weight:700}.dataset-summary .dataset-path{margin:0}
+.dataset-id-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.dataset-id-form input{width:100%;height:36px;padding:0 10px;border:1px solid var(--line);background:var(--paper)}.dataset-id-form button{height:36px}
+.dataset-actions{display:flex;justify-content:flex-end;margin-top:14px}
+.dataset-relink{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}.dataset-relink h3{margin:0;font-size:13px}.dataset-relink h3 small{color:var(--coral)}.dataset-relink>p{color:var(--muted);font-size:8px}
+@media(max-width:800px){.dataset-summary{grid-template-columns:1fr}}
+body.dataset-setup-mode #navigationPowerLayer{display:none}
+/* ボタンの色はページ配色（--coral）ではなく固定色を使う。ボタン内の var(--coral) もすべて固定色になる。 */
+:root{--button-accent:#e3654f}
+button,.primary,.new-button,.add-button{--coral:var(--button-accent)}
+.primary,.new-button,.add-button{box-shadow:0 4px 14px color-mix(in srgb,var(--button-accent) 22%,transparent)}
+.battery-color-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.battery-color-head button{flex:0 0 auto;height:32px;padding:0 12px;font-size:9px}
+/* 右上の基準パス切替メニュー */
+.dataset-switcher{position:relative;flex:0 0 auto}
+#app .dataset-switcher-button{display:flex;width:auto;max-width:220px;padding:0 13px;align-items:center;gap:7px;border-radius:19px;color:var(--ink);font-size:11px}
+.dataset-switcher-button span{font-size:13px}.dataset-switcher-button b{overflow:hidden;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.dataset-switcher-button i{color:var(--muted);font-size:8px;font-style:normal}
+.dataset-menu{position:absolute;top:calc(100% + 10px);right:0;z-index:45;width:min(340px,86vw);padding:14px;border:1px solid var(--line);background:var(--theme-surface,#eeebe4);box-shadow:0 18px 45px #1113}
+.dataset-menu[hidden]{display:none}.dataset-menu .eyebrow{margin:0 0 8px}
+.dataset-known-list{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;margin:0;padding:0;list-style:none}
+.dataset-known-list li{display:flex;align-items:stretch;border:1px solid var(--line);background:var(--paper)}
+.dataset-known-list li.current{border-color:color-mix(in srgb,var(--button-accent) 55%,var(--line))}
+.dataset-known-list [data-dataset-switch]{flex:1;min-width:0;padding:9px 11px;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.dataset-known-list [data-dataset-switch]:hover:not(:disabled){background:color-mix(in srgb,var(--button-accent) 8%,transparent)}
+.dataset-known-list [data-dataset-switch]:disabled{cursor:default}
+.dataset-known-list b,.dataset-known-list small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dataset-known-list b{font-size:12px}.dataset-known-list small{margin-top:3px;color:var(--muted);font:8px var(--font-geist-mono)}
+.dataset-known-list li.current small{color:var(--button-accent);font-family:inherit;font-weight:700}.dataset-known-list li.missing b{color:var(--muted)}
+.dataset-forget{width:32px;border:0;border-left:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer}.dataset-forget:hover{color:var(--button-accent)}
+.dataset-menu-choose{width:100%;margin-top:8px;padding:9px;border:1px dashed var(--line);background:transparent;color:var(--button-accent);font-size:10px;font-weight:650;cursor:pointer}
+.dataset-menu-empty{color:var(--muted);font-size:9px}
+.dataset-setup-known{margin:0 0 22px}.dataset-setup-known>span{display:block;margin-bottom:7px;font-size:9px;font-weight:700}
+/* ナビの直下にショートカット説明を寄せ、タイマーだけをサイドバー下端に置く */
+.sidebar>.nav-shortcut-help{margin-top:4px}
+.sidebar>.sidebar-timer{margin-top:auto}
+.motion-settings .llm-toggle{margin-top:14px}
+.motion-speed-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:16px 0 18px;padding:0;border:0}.motion-speed-options legend{margin-bottom:8px;font-size:9px;font-weight:800}
+.motion-speed-options label{display:flex;align-items:center;gap:8px;padding:11px 12px;border:1px solid var(--line);border-radius:7px;background:var(--paper);font-size:10px;cursor:pointer}.motion-speed-options label:has(input:checked){border-color:var(--button-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--button-accent) 18%,transparent)}
+@media(max-width:600px){.motion-speed-options{grid-template-columns:1fr 1fr}}
+.motion-settings{grid-column:1/-1}
+.settings-grid>.settings-card{grid-column:1/-1}
+/* 上部の検索窓：枠と白い入力欄、ショートカット表示も枠内に収める */
+#app .topbar .search-wrap{height:40px;padding:0 6px 0 13px;border:1px solid color-mix(in srgb,var(--ink) 20%,transparent);border-radius:9px;background:#fff;box-shadow:inset 0 1px 2px rgb(30 34 31/6%);transition:border-color 140ms,box-shadow 140ms}
+#app .topbar .search-wrap:focus-within{border-color:var(--button-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--button-accent) 16%,transparent)}
+#app .topbar .search-wrap>span{color:#8a8f8c;font-size:14px}
+#app .topbar .search-wrap input{height:100%;min-width:0;background:#fff;color:#22282d;font-size:12px}
+#app .topbar .search-wrap input::placeholder{color:#9a9e9b}
+#app .topbar .search-wrap kbd{flex:0 0 auto;padding:3px 7px;border:1px solid #dcdedb;border-radius:5px;background:#f5f5f3;color:#6d726f}
+/* 基準パス切替は「開いているデータ」を示すアカウント的な操作なので、上部バーの右端に区切って置く */
+#app .topbar{justify-content:flex-start;gap:12px}#app .topbar .search-wrap{margin-right:auto}
+#app .topbar .dataset-switcher{margin-left:4px;padding-left:16px;border-left:1px solid var(--line)}
+/* ===== HOME：ヒーロー・指標タイル・カードのグリッド ===== */
+.home-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;padding:8px 0 4px}
+.home-hero .eyebrow{margin:0 0 14px;letter-spacing:.22em}
+.home-hero h1{margin:0;font:400 clamp(34px,4.6vw,54px)/1.08 Georgia,"Yu Mincho","Hiragino Mincho ProN",serif;letter-spacing:-.01em}
+.home-hero h1+p{margin:14px 0 0;color:var(--muted);font-size:12px;letter-spacing:.04em}
+.home-date{display:flex;align-items:flex-start;gap:10px;padding-left:24px;border-left:1px solid var(--line)}
+.home-date strong{font:400 64px/.9 Georgia,serif;letter-spacing:-.04em}
+.home-date span{padding-top:6px;color:var(--muted);font:10px/1.6 var(--font-geist-mono);letter-spacing:.08em}
+.home-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.home-metric{display:grid;gap:10px;padding:16px 18px 15px;border:1px solid color-mix(in srgb,var(--ink) 8%,transparent);border-radius:16px;background:color-mix(in srgb,#fff 62%,var(--paper));color:var(--ink);text-align:left;cursor:pointer;box-shadow:0 1px 2px rgb(30 34 31/4%);transition:transform 160ms ease,box-shadow 160ms ease,border-color 160ms ease}
+.home-metric:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--metric) 45%,transparent);box-shadow:0 10px 26px color-mix(in srgb,var(--metric) 18%,transparent)}
+.home-metric>span{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:10px;font-weight:650}
+.home-metric i{width:8px;height:8px;border-radius:50%;background:var(--metric);box-shadow:0 0 0 3px color-mix(in srgb,var(--metric) 22%,transparent)}
+.home-metric strong{font:400 34px/1 Georgia,serif;letter-spacing:-.02em}.home-metric strong small{margin-left:2px;color:var(--muted);font-size:18px}
+.home-metric>small{color:var(--muted);font-size:8px;letter-spacing:.06em}
+.home-bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+.home-card{padding:20px 22px 22px;border:1px solid color-mix(in srgb,var(--ink) 8%,transparent);border-radius:18px;background:color-mix(in srgb,#fff 62%,var(--paper));box-shadow:0 1px 2px rgb(30 34 31/4%),0 12px 32px rgb(30 34 31/4%)}
+.home-card-todo{grid-column:span 7}.home-card-schedule{grid-column:span 5}.home-card-recent{grid-column:1/-1}
+.home-card>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.home-card>header>div{display:flex;align-items:baseline;gap:10px}
+.home-card>header span{color:var(--muted);font:9px var(--font-geist-mono);letter-spacing:.1em}
+.home-card h2{margin:0;font:400 20px/1.2 Georgia,"Yu Mincho",serif}
+.home-link{padding:6px 12px;border:1px solid color-mix(in srgb,var(--ink) 14%,transparent);border-radius:999px;background:transparent;color:var(--ink);font-size:9px;font-weight:650;cursor:pointer;transition:background-color 140ms,border-color 140ms}
+.home-link::after{content:" →"}.home-link:hover{border-color:var(--button-accent);color:var(--button-accent)}
+.home-empty{margin:18px 0 6px;color:var(--muted);font-size:10px}
+.home-card .home-todo-list{display:grid;gap:7px}
+.home-card .home-todo-list>button{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;padding:11px 14px 11px 16px;border:0;border-radius:11px;background:color-mix(in srgb,var(--paper) 55%,#fff);color:var(--ink);text-align:left;cursor:pointer;box-shadow:inset 3px 0 0 color-mix(in srgb,var(--power-todo-strong,#e06666) 75%,transparent);transition:transform 140ms}
+.home-card .home-todo-list>button:hover{transform:translateX(3px)}
+.home-card .home-todo-list strong,.home-schedule strong{display:block;overflow:hidden;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}
+.home-card .home-todo-list small,.home-schedule span small{display:block;margin-top:3px;color:var(--muted);font-size:8px}
+.home-card .home-todo-list span{min-width:0}
+.home-card .home-todo-list b{flex:0 0 auto;padding:4px 9px;border-radius:999px;background:color-mix(in srgb,var(--ink) 7%,transparent);font-size:8px;font-weight:700}
+.home-card .home-todo-list .is-overdue b{background:color-mix(in srgb,#d85858 16%,transparent);color:#b84545}
+.home-schedule{display:grid}
+.home-schedule>button{position:relative;display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:14px;align-items:start;padding:10px 0 12px 16px;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.home-schedule>button::before{content:"";position:absolute;top:15px;left:0;width:7px;height:7px;border-radius:50%;background:var(--power-goals-strong,#ec9a4a)}
+.home-schedule>button:not(:last-child)::after{content:"";position:absolute;top:26px;bottom:-4px;left:3px;width:1px;background:var(--line)}
+.home-schedule time{font:600 12px/1.2 var(--font-geist-mono)}.home-schedule time small{display:block;margin-top:3px;color:var(--muted);font-size:8px;font-weight:400}
+.home-schedule b{color:var(--muted);font:9px var(--font-geist-mono)}
+.home-card-recent .journal-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+@media(max-width:1000px){.home-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.home-card-todo,.home-card-schedule{grid-column:1/-1}}
+@media(max-width:600px){.home-hero{align-items:flex-start;flex-direction:column}.home-date{padding-left:0;border-left:0}}
+.home-card .journal-list{margin:0;padding:0;border:0}
+.home-card .home-todo-list{grid-template-columns:minmax(0,1fr)}
+/* ===== HOMEのアニメーション ===== */
+/* 見出しの下を虹色の光がゆっくり流れる */
+.home-hero h1{position:relative;display:inline-block;padding-bottom:12px}
+.home-hero h1::after{content:"";position:absolute;right:0;bottom:0;left:0;height:3px;border-radius:3px;background:linear-gradient(90deg,var(--power-todo-strong),var(--power-goals-strong),var(--power-calendar-strong),var(--power-analysis-strong,#a3c255),var(--power-worktree-strong),var(--power-files-strong),var(--power-books-strong),var(--power-papers-strong),var(--power-todo-strong));background-size:200% 100%;animation:home-rainbow-flow 6s linear infinite}
+@keyframes home-rainbow-flow{to{background-position:-200% 0}}
+/* 指標タイルの色の点がゆっくり脈打つ */
+.home-metric i{animation:home-dot-pulse 2.8s calc(var(--i) * .35s) ease-in-out infinite}
+@keyframes home-dot-pulse{0%,100%{box-shadow:0 0 0 3px color-mix(in srgb,var(--metric) 22%,transparent)}50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--metric) 10%,transparent)}}
+/* ページに入ったときだけ、要素が順番に浮かび上がる */
+.home-intro .home-hero,.home-intro .home-metric,.home-intro .home-card{animation:home-rise 620ms calc(var(--i,0) * 70ms + 80ms) cubic-bezier(.2,.75,.25,1) both}
+@keyframes home-rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.home>.home-hero{margin-bottom:26px}
+/* 画面内の確認・通知ダイアログ */
+.app-dialog{z-index:200}.app-dialog .setup-dialog{width:min(420px,100%);padding:30px 30px 24px}
+.app-dialog-message{margin:0 0 24px;color:var(--ink);font-size:13px;line-height:1.8;white-space:pre-wrap}
+.app-dialog .primary.danger{--button-accent:#c94f4f}
+/* 白いページ色でも、指標の点などの輪郭が消えないようにする */
+.home-metric i{outline:1px solid color-mix(in srgb,var(--metric) 45%,#7f8581);outline-offset:-1px}
+.battery-color-grid input[type=color]{border:1px solid var(--line);border-radius:4px}
+/* 右上の表示言語切替（ナビゲーションの表記） */
+.language-toggle{display:inline-flex;flex:0 0 auto;padding:3px;border:1px solid var(--line);border-radius:999px;background:color-mix(in srgb,#fff 55%,transparent)}
+.language-toggle button{padding:5px 11px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:9px;font-weight:650;cursor:pointer;transition:background-color 140ms,color 140ms}
+.language-toggle button.active{background:var(--ink);color:#fff}
+.language-toggle button:not(.active):hover{color:var(--ink)}
+/* 添付フォルダ（時間割のアクション・Todo共通）。クリックでファイル管理アプリが開く。 */
+.folder-chip-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0;padding:0;list-style:none}.folder-chip{display:flex;align-items:stretch;max-width:100%;border:1px solid var(--line);border-radius:99px;background:var(--theme-surface,var(--paper));overflow:hidden}.folder-chip>button{border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}.folder-chip>button:first-child{display:flex;align-items:baseline;gap:6px;min-width:0;padding:5px 4px 5px 10px;font-size:9px}.folder-chip>button:first-child strong{white-space:nowrap}.folder-chip>button:first-child small{overflow:hidden;color:var(--muted);font-size:7px;text-overflow:ellipsis;white-space:nowrap}.folder-chip>button:first-child:hover strong{text-decoration:underline}.folder-chip-remove{padding:0 10px 0 6px;color:var(--muted);font-size:11px}.folder-chip-remove:hover{color:var(--danger,#b3261e)}.folder-chip-empty{margin:10px 0 0;font-size:8px}.action-resource-section>.folder-chip-list,.action-resource-section>.folder-chip-empty{margin:10px 12px 12px}.todo-folder-attachments{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}.todo-folder-attachments>header{display:flex;align-items:center;justify-content:space-between;gap:16px}.todo-folder-attachments>header strong,.todo-folder-attachments>header small{display:block}.todo-folder-attachments>header small{margin-top:4px;color:var(--muted);font-size:8px}
+@media(max-width:760px){.todo-folder-attachments>header{align-items:flex-start;flex-direction:column}}
+.todo-attachment-summary .folder-chip{padding:0;font-size:inherit}

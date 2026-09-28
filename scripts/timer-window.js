@@ -1,6 +1,6 @@
 "use strict";
 const path=require('node:path'),fs=require('node:fs'),{spawn,spawnSync}=require('node:child_process');
-const port=Number(process.argv[2]),runtime=process.argv[3];
+const port=Number(process.argv[2]),runtime=process.argv[3],language=process.argv[4]==='en'?'en':'ja';
 if(!Number.isInteger(port)||port<1024||port>65535||!runtime||!path.isAbsolute(runtime))process.exit(1);
 let command,args;
 if(process.platform==='darwin'){
@@ -9,7 +9,7 @@ if(process.platform==='darwin'){
   const build=spawnSync('/usr/bin/xcrun',['swiftc','-parse-as-library',source,'-o',binary],{stdio:'ignore',shell:false});
   if(build.status!==0)process.exit(1);
  }
- command=binary;args=[String(port)];
+ command=binary;args=[String(port),language];
 }else if(process.platform==='win32'){
  command=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
  const script=fs.readFileSync(path.join(__dirname,'TimerWindow.ps1'),'utf8').replace('param([int]$Port)',`$Port = ${port}`);

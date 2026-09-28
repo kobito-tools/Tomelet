@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
-const ignoredDirectories = new Set([".git", "node_modules", ".test-output", "TickTockTome.app", "DailyLog.app"]);
+const ignoredDirectories = new Set([".git", "node_modules", ".test-output", "Tomelet.app", "TickTockTome.app", "DailyLog.app"]);
 const forbiddenNames = new Set(["setting.json", "integrations.json", "ticktocktome.sqlite3", "dailylog.sqlite3", "server.json", "runtime.log"]);
 const forbiddenExtensions = new Set([".sqlite", ".sqlite3", ".db", ".backup"]);
 const problems = [];

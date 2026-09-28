@@ -1,28 +1,26 @@
-/* Tick Tock Tome navigation power animation
+/* Tomelet navigation power animation
  * The navigation itself remains usable even when this decorative layer is disabled.
  */
 
 :root {
-  --power-dashboard-soft: #f6d6d8;
-  --power-dashboard-strong: #d77f86;
-  --power-todo-soft: #f7ddd1;
-  --power-todo-strong: #dc9071;
-  --power-goals-soft: #f6e2c5;
-  --power-goals-strong: #d49a55;
-  --power-timeline-soft: #f5ebbd;
-  --power-timeline-strong: #c8a943;
-  --power-calendar-soft: #edf0bf;
-  --power-calendar-strong: #a6ad4f;
-  --power-worktree-soft: #d6ebd8;
-  --power-worktree-strong: #70aa78;
-  --power-files-soft: #d2ebe3;
-  --power-files-strong: #64a696;
-  --power-books-soft: #d6e9f2;
-  --power-books-strong: #6da4bd;
-  --power-textbooks-soft: #dce2f3;
-  --power-textbooks-strong: #7c8fbe;
-  --power-papers-soft: #e7dcf0;
-  --power-papers-strong: #9a7eb5;
+  --power-dashboard-soft: #ffffff;
+  --power-dashboard-strong: #ffffff;
+  --power-todo-soft: #f6d4d4;
+  --power-todo-strong: #e06666;
+  --power-goals-soft: #fae3cc;
+  --power-goals-strong: #ec9a4a;
+  --power-timeline-soft: #e5eecf;
+  --power-timeline-strong: #a3c255;
+  --power-calendar-soft: #f7edcb;
+  --power-calendar-strong: #e2c044;
+  --power-worktree-soft: #d0e9da;
+  --power-worktree-strong: #56b27a;
+  --power-files-soft: #cdeaed;
+  --power-files-strong: #4db3be;
+  --power-books-soft: #d1dff4;
+  --power-books-strong: #5b8dd9;
+  --power-papers-soft: #e1d8f2;
+  --power-papers-strong: #9573cf;
   --power-settings-soft: #e5e4df;
   --power-settings-strong: #96968f;
   --power-help-soft: #e5e4df;
@@ -43,15 +41,17 @@
   --battery-soft: #e5e4df;
   --battery-strong: #96968f;
   --power-strong: var(--battery-strong);
+  /* White or very pale batteries still need a visible outline, so edges mix in a neutral grey. */
+  --battery-edge: color-mix(in srgb, var(--battery-strong) 45%, #7f8581);
   position: relative;
   min-height: 43px;
   margin: 2px 4px 7px 38px;
   padding: 7px 12px 7px 9px;
-  border: 1px solid color-mix(in srgb, var(--battery-strong) 35%, transparent);
+  border: 1px solid color-mix(in srgb, var(--battery-edge) 55%, transparent);
   border-radius: 6px 17px 17px 6px;
   background: color-mix(in srgb, var(--battery-soft) 68%, white);
   color: #22282d;
-  box-shadow: inset -5px 0 0 color-mix(in srgb, var(--battery-strong) 18%, transparent),
+  box-shadow: inset -5px 0 0 color-mix(in srgb, var(--battery-edge) 20%, transparent),
     0 2px 8px rgb(57 62 60 / 7%);
   transform-origin: left center;
   transition: background-color 160ms ease, border-color 160ms ease,
@@ -65,7 +65,7 @@
   left: -9px;
   width: 9px;
   height: 21px;
-  border: 1px solid color-mix(in srgb, var(--battery-strong) 42%, transparent);
+  border: 1px solid color-mix(in srgb, var(--battery-edge) 60%, transparent);
   border-right: 0;
   border-radius: 5px 0 0 5px;
   background: color-mix(in srgb, var(--battery-soft) 70%, white);
@@ -113,16 +113,16 @@
 }
 
 .sidebar nav button.active {
-  border-color: color-mix(in srgb, var(--battery-strong) 66%, transparent);
+  border-color: color-mix(in srgb, var(--battery-edge) 85%, transparent);
   background: var(--battery-soft);
-  box-shadow: inset -6px 0 0 color-mix(in srgb, var(--battery-strong) 30%, transparent),
+  box-shadow: inset -6px 0 0 color-mix(in srgb, var(--battery-edge) 32%, transparent),
     0 5px 14px color-mix(in srgb, var(--battery-strong) 18%, transparent);
   transform: translateX(3px);
 }
 
 .sidebar nav button.active::before {
   background: var(--battery-strong);
-  border-color: color-mix(in srgb, var(--battery-strong) 76%, #626762);
+  border-color: var(--battery-edge);
   box-shadow: 0 0 8px color-mix(in srgb, var(--battery-strong) 35%, transparent);
 }
 
@@ -168,11 +168,6 @@
 .sidebar nav button[data-view="books"] {
   --battery-soft: var(--power-books-soft);
   --battery-strong: var(--power-books-strong);
-}
-
-.sidebar nav button[data-view="textbooks"] {
-  --battery-soft: var(--power-textbooks-soft);
-  --battery-strong: var(--power-textbooks-strong);
 }
 
 .sidebar nav button[data-view="papers"] {
@@ -568,25 +563,9 @@
 .power-vignette[data-scene="files"] .mini-action-prop::after { content: ""; position: absolute; right: -3px; bottom: -4px; left: -3px; border-top: 2px solid #59615d; }
 .power-vignette[data-scene="files"] .mini-a .mini-arm-b { animation: mini-type 180ms ease-in-out infinite alternate; }
 
-.power-vignette[data-scene="books"] .mini-action-prop,
-.power-vignette[data-scene="textbooks"] .mini-action-prop { display: grid; width: 23px; height: 17px; }
-.power-vignette[data-scene="books"] .mini-action-prop::before,
-.power-vignette[data-scene="textbooks"] .mini-action-prop::before { content: "▤"; }
-.power-vignette[data-scene="books"] .mini-a,
-.power-vignette[data-scene="textbooks"] .mini-a { animation: mini-read 1.5s ease-in-out infinite alternate; }
-
-.power-vignette[data-scene="textbooks"] .mini-glasses {
-  display: block;
-  top: 13px;
-  left: 18px;
-  width: 15px;
-  height: 6px;
-  border-right: 1.5px solid #414845;
-  border-left: 1.5px solid #414845;
-  box-shadow: inset 0 0 0 1px #414845;
-  border-radius: 4px;
-  animation: mini-glasses-on 900ms cubic-bezier(.2,.8,.3,1) both;
-}
+.power-vignette[data-scene="books"] .mini-action-prop { display: grid; width: 23px; height: 17px; }
+.power-vignette[data-scene="books"] .mini-action-prop::before { content: "▤"; }
+.power-vignette[data-scene="books"] .mini-a { animation: mini-read 1.5s ease-in-out infinite alternate; }
 
 .power-vignette[data-scene="papers"] .mini-gown {
   display: block;
@@ -750,8 +729,11 @@
 /* Backpack power unit: the character now carries the bulb and its own cable. */
 .sidebar nav {
   padding-top: 0;
-  flex: 1;
+  /* Shrink (and scroll) only when the window is short; otherwise hug the batteries. */
+  flex: 0 1 auto;
   min-height: 0;
+  /* Keep battery rows at their own height instead of stretching to fill the sidebar. */
+  align-content: start;
 }
 
 .sidebar .brand {

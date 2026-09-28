@@ -1,10 +1,10 @@
 "use strict";
 
 const { createVerifiedBackup } = require("../scripts/database/backup.js");
-const { ensurePrivateDirectories, pathsFor } = require("../scripts/settings.js");
+const { activePaths, ensurePrivateDirectories } = require("../scripts/settings.js");
 
 async function main() {
-  const runtimePaths = pathsFor();
+  const runtimePaths = activePaths();
   ensurePrivateDirectories(runtimePaths);
   const destination = await createVerifiedBackup(runtimePaths.databasePath, runtimePaths.backupDirectory);
   console.log(destination);

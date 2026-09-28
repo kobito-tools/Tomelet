@@ -5,7 +5,7 @@ async function request(path, options = {}) {
   const response = await fetch(path, { cache: "no-store", ...options, headers: { ...(options.body ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) } });
   let result;
   try { result = await response.json(); } catch { result = {}; }
-  if (!response.ok) throw new Error(result.error || `処理に失敗しました (${response.status})`);
+  if (!response.ok) throw Object.assign(new Error(result.error || `処理に失敗しました (${response.status})`), { status: response.status, data: result });
   return result;
 }
 
@@ -62,13 +62,20 @@ window.TickTockTomeApi = Object.freeze({
   purgeLibrary: (id, revision) => request(`/api/v1/library-trash/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ revision }) }),
   openPath: (rootId, relativePath) => request("/api/v1/open-path", { method: "POST", body: JSON.stringify({ rootId, relativePath }) }),
   pickPath: (rootId, kind) => request("/api/v1/pick-path", { method: "POST", body: JSON.stringify({ rootId, kind }) }),
-  chooseFileRoot: (value) => request("/api/v1/settings/file-roots:choose", { method: "POST", body: JSON.stringify(value) }),
   updateTheme: (value) => request("/api/v1/settings/theme", { method: "PUT", body: JSON.stringify(value) }),
   updateFont: (value) => request("/api/v1/settings/font", { method: "PUT", body: JSON.stringify(value) }),
+  updateLanguage: (value) => request("/api/v1/settings/language", { method: "PUT", body: JSON.stringify(value) }),
+  updateMotion: (value) => request("/api/v1/settings/motion", { method: "PUT", body: JSON.stringify(value) }),
   updateLocalLlm: (value) => request("/api/v1/settings/local-llm", { method: "PUT", body: JSON.stringify(value) }),
   referenceFile: (value) => request("/api/v1/files:reference", { method: "POST", body: JSON.stringify(value) }),
   extractLibraryMetadata: (value) => request("/api/v1/library:extract-metadata", { method: "POST", body: JSON.stringify(value) }),
   updateTagVisibility: (value) => request("/api/v1/settings/tag-visibility", { method: "PUT", body: JSON.stringify(value) }),
-  chooseContentLocation: (value) => request("/api/v1/settings/content-location:choose", { method: "POST", body: JSON.stringify(value) }),
+  chooseDataset: (value) => request("/api/v1/dataset:choose", { method: "POST", body: JSON.stringify(value) }),
+  applyDataset: (value) => request("/api/v1/dataset:apply", { method: "POST", body: JSON.stringify(value) }),
+  reopenDataset: (value) => request("/api/v1/dataset:reopen", { method: "POST", body: JSON.stringify(value) }),
+  switchDataset: (value) => request("/api/v1/dataset:switch", { method: "POST", body: JSON.stringify(value) }),
+  forgetDataset: (value) => request("/api/v1/dataset:forget", { method: "POST", body: JSON.stringify(value) }),
+  updateDatasetId: (value) => request("/api/v1/dataset", { method: "PUT", body: JSON.stringify(value) }),
+  relinkReference: (value) => request("/api/v1/dataset/relink", { method: "POST", body: JSON.stringify(value) }),
 });
 })();

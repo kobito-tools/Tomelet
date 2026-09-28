@@ -1,5 +1,14 @@
 "use strict";
 
+const { safeRelativePath } = require("./journal-service.js");
+
+// 添付フォルダは基準パスからの相対パスで持つ。区切りは「/」へそろえ、末尾の「/」は外す。
+function folderPathList(value) {
+  const values = [...new Set((Array.isArray(value) ? value : []).map((entry) => String(entry).replace(/\\/g, "/").replace(/\/+$/, "")))];
+  if (values.length > 50 || values.some((entry) => !safeRelativePath(entry) || entry.length > 1024)) throw new Error("添付フォルダの指定が正しくありません。");
+  return values;
+}
+
 function validDate(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -32,7 +41,7 @@ function validateDailyAction(input, updating = false) {
   };
   const todoId = String(input.todoId || "");
   if (todoId && !/^[A-Za-z0-9_-]+$/.test(todoId)) throw new Error("Todoの指定が正しくありません。");
-  return { actionDate: input.actionDate, startTime: input.startTime, endTime: input.endTime, action, location, progress, tagIds, completions, todoId, fileIds: ids("fileIds"), managedFileIds: ids("managedFileIds"), libraryIds: ids("libraryIds"), uploadIds: ids("uploadIds"), displayOrder: Math.max(1, Number(input.displayOrder) || 1), ...(updating ? { revision } : {}) };
+  return { actionDate: input.actionDate, startTime: input.startTime, endTime: input.endTime, action, location, progress, tagIds, completions, todoId, fileIds: ids("fileIds"), managedFileIds: ids("managedFileIds"), libraryIds: ids("libraryIds"), uploadIds: ids("uploadIds"), folderPaths: folderPathList(input.folderPaths), displayOrder: Math.max(1, Number(input.displayOrder) || 1), ...(updating ? { revision } : {}) };
 }
 
-module.exports = { validDate, validateDailyAction };
+module.exports = { validDate, validateDailyAction, folderPathList };

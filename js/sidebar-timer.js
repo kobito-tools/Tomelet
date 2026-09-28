@@ -42,7 +42,7 @@ document.addEventListener('click',async event=>{
  else if(b.dataset.timerOperation)await openOperation(b.dataset.timerOperation);
  else if(b.dataset.timerTodo)chooseDuration({todoId:b.dataset.timerTodo});
  else if(b.dataset.timerAction){const t=(window.__tickTockTomeTodayActions||[]).find(t=>t.id===b.dataset.timerAction);chooseDuration({actionId:t.id,revision:t.revision});}
- }catch(error){alert(error.message);}
+ }catch(error){window.TickTockTomeDialog.alert(error.message);}
 });
 document.addEventListener('submit',async event=>{
  const form=event.target.closest('[data-timer-new],[data-timer-complete],[data-timer-duration]');if(!form)return;event.preventDefault();const data=new FormData(form);

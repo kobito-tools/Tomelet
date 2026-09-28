@@ -2,6 +2,7 @@
 
 const { randomUUID } = require("node:crypto");
 const { transaction } = require("../database/connection.js");
+const { folderPathList } = require("../services/daily-action-service.js");
 
 function ftsQuery(value) {
   return String(value).trim().split(/\s+/).filter(Boolean).slice(0, 8)
@@ -16,10 +17,12 @@ class SqliteRepository {
     const tags = this.database.prepare("SELECT tag_id AS tagId FROM todo_tags WHERE todo_id = ? ORDER BY tag_id");
     const files = this.database.prepare("SELECT managed_file_id AS id FROM todo_managed_files WHERE todo_id = ? ORDER BY managed_file_id");
     const library = this.database.prepare("SELECT library_item_id AS id FROM todo_library_items WHERE todo_id = ? ORDER BY library_item_id");
-    return this.database.prepare(`SELECT id,title,due_date AS dueDate,progress,created_at AS createdAt,updated_at AS updatedAt,revision,completed_at AS completedAt,deleted_at AS deletedAt FROM todos WHERE ${includeCompleted ? "1=1" : "completed_at IS NULL AND deleted_at IS NULL"} ORDER BY due_date IS NULL,due_date,created_at,id`).all().map((item) => ({ ...item, tagIds: tags.all(item.id).map((tag) => tag.tagId), managedFileIds: files.all(item.id).map((row) => row.id), libraryIds: library.all(item.id).map((row) => row.id) }));
+    const folders = this.database.prepare("SELECT relative_path AS relativePath FROM todo_folders WHERE todo_id = ? ORDER BY relative_path");
+    return this.database.prepare(`SELECT id,title,due_date AS dueDate,progress,created_at AS createdAt,updated_at AS updatedAt,revision,completed_at AS completedAt,deleted_at AS deletedAt FROM todos WHERE ${includeCompleted ? "1=1" : "completed_at IS NULL AND deleted_at IS NULL"} ORDER BY due_date IS NULL,due_date,created_at,id`).all().map((item) => ({ ...item, tagIds: tags.all(item.id).map((tag) => tag.tagId), managedFileIds: files.all(item.id).map((row) => row.id), libraryIds: library.all(item.id).map((row) => row.id), folderPaths: folders.all(item.id).map((row) => row.relativePath) }));
   }
 
   saveTodo(input, id = null) {
+    const folderPaths = folderPathList(input.folderPaths);
     const title = String(input.title || "").trim(), tagIds = [...new Set(input.tagIds || [])], dueDate=String(input.dueDate||"").trim()||null, progress=Number(input.progress??0);
     if (!title || title.length > 300 || tagIds.some((tag) => !/^[A-Za-z0-9_-]+$/.test(tag)) || (dueDate&&!validDate(dueDate)) || !Number.isInteger(progress)||progress<0||progress>99) throw new Error("Todoの名前・タグ・期限日・達成度（0〜99%）を確認してください。");
     const now = new Date().toISOString(), key = id || `todo-${randomUUID()}`;
@@ -35,6 +38,8 @@ class SqliteRepository {
       for (const fileId of [...new Set(input.managedFileIds || [])]) this.database.prepare("INSERT INTO todo_managed_files(todo_id,managed_file_id) VALUES(?,?)").run(key,fileId);
       this.database.prepare("DELETE FROM todo_library_items WHERE todo_id=?").run(key);
       for (const libraryId of [...new Set(input.libraryIds || [])]) this.database.prepare("INSERT INTO todo_library_items(todo_id,library_item_id) VALUES(?,?)").run(key,libraryId);
+      this.database.prepare("DELETE FROM todo_folders WHERE todo_id=?").run(key);
+      for (const folderPath of folderPaths) this.database.prepare("INSERT INTO todo_folders(todo_id,relative_path) VALUES(?,?)").run(key,folderPath);
     });
     return this.listTodos(true).find((item) => item.id === key);
   }
@@ -307,6 +312,7 @@ class SqliteRepository {
     const files = this.database.prepare("SELECT file_index_item_id AS id FROM daily_action_file_items WHERE daily_action_id = ? ORDER BY file_index_item_id");
     const managedFiles = this.database.prepare("SELECT managed_file_id AS id FROM daily_action_managed_files WHERE daily_action_id = ? ORDER BY managed_file_id");
     const library = this.database.prepare("SELECT library_item_id AS id FROM daily_action_library_items WHERE daily_action_id = ? ORDER BY library_item_id");
+    const folders = this.database.prepare("SELECT relative_path AS relativePath FROM daily_action_folders WHERE daily_action_id = ? ORDER BY relative_path");
     const uploads = this.database.prepare("SELECT u.id, u.original_name AS originalName, u.mime_type AS mimeType, u.size_bytes AS sizeBytes FROM daily_action_uploads a JOIN managed_uploads u ON u.id = a.upload_id WHERE a.daily_action_id = ? AND u.deleted_at IS NULL ORDER BY u.created_at");
     return this.database.prepare(`
       SELECT a.id, a.action_date AS actionDate, a.start_time AS startTime, a.end_time AS endTime,
@@ -329,6 +335,7 @@ class SqliteRepository {
       libraryIds: library.all(item.id).map((row) => row.id),
       uploads: uploads.all(item.id),
       uploadIds: uploads.all(item.id).map((row) => row.id),
+      folderPaths: folders.all(item.id).map((row) => row.relativePath),
     }));
   }
 
@@ -363,6 +370,9 @@ class SqliteRepository {
     this.database.prepare("DELETE FROM daily_action_uploads WHERE daily_action_id = ?").run(id);
     const addUpload = this.database.prepare("INSERT INTO daily_action_uploads(daily_action_id, upload_id) VALUES (?, ?)");
     for (const uploadId of input.uploadIds || []) addUpload.run(id, uploadId);
+    this.database.prepare("DELETE FROM daily_action_folders WHERE daily_action_id = ?").run(id);
+    const addFolder = this.database.prepare("INSERT INTO daily_action_folders(daily_action_id, relative_path) VALUES (?, ?)");
+    for (const folderPath of input.folderPaths || []) addFolder.run(id, folderPath);
   }
 
   createDailyAction(input) {
@@ -433,6 +443,7 @@ class SqliteRepository {
         for(const tagId of item.tagIds)this.database.prepare('INSERT INTO todo_tags(todo_id,tag_id) VALUES(?,?)').run(todoId,tagId);
         for(const fileId of item.managedFileIds||[])this.database.prepare('INSERT INTO todo_managed_files(todo_id,managed_file_id) VALUES(?,?)').run(todoId,fileId);
         for(const libraryId of item.libraryIds||[])this.database.prepare('INSERT INTO todo_library_items(todo_id,library_item_id) VALUES(?,?)').run(todoId,libraryId);
+        for(const folderPath of item.folderPaths||[])this.database.prepare('INSERT INTO todo_folders(todo_id,relative_path) VALUES(?,?)').run(todoId,folderPath);
         this.database.prepare('UPDATE daily_actions SET todo_id=? WHERE id=?').run(todoId,id);
       }
       return this.dailyActionById(id);
@@ -445,8 +456,11 @@ class SqliteRepository {
     return this.resolveDailyAction(id,{...value,outcome:'completed',actualStartTime:value.actualStartTime||item?.actualStartTime||item?.startTime,actualEndTime:value.actualEndTime||timeKey(now)},revision,now);
   }
 
-  listMemos({ query = "", limit = 200 } = {}) {
+  listMemos({ query = "", limit = 200, from = "", to = "" } = {}) {
     const where = ["m.deleted_at IS NULL"], params = [];
+    // from・toは作成日時（UTCのISO形式）の範囲。カレンダーの1か月分などを取り出す。
+    if (from) { where.push("m.created_at >= ?"); params.push(from); }
+    if (to) { where.push("m.created_at < ?"); params.push(to); }
     if (query.trim()) {
       for (const part of query.trim().split(/\s+/).slice(0, 8)) {
         const like = `%${part.replace(/[\\%_]/g, "\\$&")}%`;

@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { createVerifiedBackup } = require("../scripts/database/backup.js");
-const { ensurePrivateDirectories, pathsFor } = require("../scripts/settings.js");
+const { activePaths, ensurePrivateDirectories } = require("../scripts/settings.js");
 
 function verify(filePath) {
   const database = new DatabaseSync(filePath, { readOnly: true });
@@ -20,9 +20,9 @@ async function main() {
   const index = args.indexOf("--from");
   if (index < 0 || !args[index + 1]) throw new Error("--from <バックアップDB> を指定してください。");
   const source = fs.realpathSync(args[index + 1]);
-  const runtimePaths = pathsFor();
+  const runtimePaths = activePaths();
   ensurePrivateDirectories(runtimePaths);
-  if (fs.existsSync(runtimePaths.pidPath)) throw new Error("先にTick Tock Tomeを終了してください。");
+  if (fs.existsSync(runtimePaths.pidPath)) throw new Error("先にTomeletを終了してください。");
   verify(source);
   if (fs.existsSync(runtimePaths.databasePath)) await createVerifiedBackup(runtimePaths.databasePath, runtimePaths.backupDirectory, "before-restore");
   const temporary = `${runtimePaths.databasePath}.${process.pid}.${Date.now()}.tmp`;

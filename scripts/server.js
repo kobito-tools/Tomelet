@@ -2,7 +2,7 @@
 
 const { createServer } = require("node:http");
 const { createHash, randomUUID } = require("node:crypto");
-const { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } = require("node:fs");
+const { existsSync, mkdirSync, readFileSync, realpathSync, statSync } = require("node:fs");
 const { readFile, realpath, writeFile, unlink } = require("node:fs/promises");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
@@ -10,7 +10,7 @@ const { openDatabase } = require("./database/connection.js");
 const { createVerifiedBackup } = require("./database/backup.js");
 const { SqliteRepository } = require("./repositories/sqlite-repository.js");
 const { JournalService, safeRelativePath } = require("./services/journal-service.js");
-const { updateFontPreset, updateLocalLlm, updateTagVisibility, updateTheme, upsertFileRoot, validateRootInput } = require("./services/settings-service.js");
+const { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updateTagVisibility, updateTheme } = require("./services/settings-service.js");
 const { analyzeDailyActivity, extractLibraryMetadata } = require("./services/local-llm-service.js");
 const { validDate, validateDailyAction } = require("./services/daily-action-service.js");
 const { validateLibraryItem } = require("./services/library-service.js");
@@ -18,24 +18,116 @@ const { validateMemo } = require("./services/memo-service.js");
 const { companionClient, companions } = require("./integrations/companions.js");
 const { authorizeIntegration } = require("./security/integration-auth.js");
 const { resolveAllowedTarget } = require("./security/file-paths.js");
-const { databasePathIn, ensurePrivateDirectories, loadSettings, pathsFor } = require("./settings.js");
+const { DATASET_DIRECTORY_NAME, loadSettings, machineRecord, normalizeSharedSettings, pathsFor, writeJsonAtomic } = require("./settings.js");
+const dataset = require("./dataset.js");
 
 const projectRoot = path.resolve(__dirname, "..");
 const machinePaths = pathsFor();
-ensurePrivateDirectories(machinePaths);
+for (const directory of [machinePaths.configDirectory, machinePaths.runtimeDirectory]) mkdirSync(directory, { recursive: true, mode: 0o700 });
 const settings = loadSettings(machinePaths);
-const runtimePaths = pathsFor(machinePaths.dataDirectory, settings.contentDirectory);
-ensurePrivateDirectories(runtimePaths);
-const database = openDatabase(runtimePaths.databasePath, projectRoot, runtimePaths.backupDirectory);
-const repository = new SqliteRepository(database);
-const journals = new JournalService(repository, settings);
+if (!settings.machineId) { settings.machineId = randomUUID(); writeJsonAtomic(machinePaths.settingPath, machineRecord(settings)); }
+// 基準パスのデータセットを開くまでは、DBを持たない「設定待ち」状態で起動する。
+let runtimePaths = machinePaths;
+let database = null;
+let repository = null;
+let journals = null;
+let datasetState = { status: settings.basePath ? "missing" : "unset", message: "", lockHolder: null };
+let stopHeartbeat = null;
+let currentDataset = null;
+const pendingBaseSelections = new Map();
+
+function persistSettings(scope, next) {
+  if (scope === "machine") { writeJsonAtomic(machinePaths.settingPath, machineRecord(next)); return; }
+  if (!currentDataset || !settings.basePath) throw Object.assign(new Error("基準パスを設定してください。"), { statusCode: 503 });
+  currentDataset = { ...currentDataset, datasetId: next.datasetId, revision: next.revision, settings: normalizeSharedSettings(next) };
+  dataset.writeDataset(settings.basePath, currentDataset);
+  if (next.datasetId !== settings.datasetId) { rememberDataset(settings.basePath, next.datasetId); writeJsonAtomic(machinePaths.settingPath, machineRecord({ ...settings, revision: next.revision })); }
+}
+
+function datasetKey(basePath) {
+  return createHash("sha256").update(basePath).digest("hex").slice(0, 16);
+}
+
+// 開いた基準パスを「既知の基準パス」の先頭へ記録する（このPCだけの一覧）。
+function rememberDataset(basePath, datasetId) {
+  const others = (settings.knownDatasets || []).filter((entry) => entry.basePath !== basePath);
+  settings.knownDatasets = [{ basePath, datasetId, lastOpenedAt: new Date().toISOString() }, ...others].slice(0, 30);
+}
+
+function publicKnownDatasets() {
+  return (settings.knownDatasets || []).map((entry) => {
+    let datasetId = entry.datasetId, available = false;
+    try { const loaded = dataset.readDataset(entry.basePath); if (loaded) { datasetId = loaded.datasetId; available = true; } } catch { /* 読めない場合は記録済みのIDを表示 */ }
+    return { key: datasetKey(entry.basePath), datasetId, basePath: entry.basePath, available, current: Boolean(currentDataset) && entry.basePath === settings.basePath };
+  });
+}
+
+function knownDatasetByKey(key) {
+  const entry = (settings.knownDatasets || []).find((item) => datasetKey(item.basePath) === String(key || ""));
+  if (!entry) throw Object.assign(new Error("基準パスの一覧に見つかりません。"), { statusCode: 404 });
+  return entry;
+}
+
+function closeDataset() {
+  stopHeartbeat?.(); stopHeartbeat = null;
+  if (database) { try { database.close(); } catch { /* 既に閉じている */ } }
+  if (settings.basePath && currentDataset) { try { dataset.releaseLock(settings.basePath, settings.machineId); } catch { /* 基準パスが外れている */ } }
+  database = null; repository = null; journals = null; currentDataset = null;
+  runtimePaths = machinePaths;
+  settings.fileRoots = [];
+}
+
+// 基準パスのデータセットを開き、このPCの現在の基準パスとして記録する。
+function openDataset(basePath, { force = false } = {}) {
+  const loaded = dataset.readDataset(basePath);
+  if (!loaded) throw Object.assign(new Error("基準パスにTomeletのデータが見つかりません。"), { statusCode: 404 });
+  if (currentDataset && settings.basePath === basePath) return;
+  // 切替先のロックを先に確保し、取れなかった場合は現在のデータセットを開いたままにする。
+  const lock = dataset.acquireLock(basePath, settings.machineId, { force });
+  if (currentDataset) closeDataset();
+  let opened;
+  try {
+    dataset.ensureDatasetDirectories(basePath);
+    const paths = dataset.datasetPaths(machinePaths.dataDirectory, basePath);
+    opened = openDatabase(paths.databasePath, projectRoot, paths.backupDirectory);
+    runtimePaths = paths;
+  } catch (error) { dataset.releaseLock(basePath, settings.machineId); throw error; }
+  database = opened;
+  repository = new SqliteRepository(database);
+  currentDataset = loaded;
+  const legacyRoots = Object.entries(loaded.legacyRoots).filter(([, prefix]) => prefix === null).map(([id]) => ({ id, displayName: `旧基準パス（${id}）`, absolutePath: null, legacy: true }));
+  Object.assign(settings, loaded.settings, { basePath, datasetId: loaded.datasetId, revision: Math.max(settings.revision, loaded.revision) + 1, fileRoots: [{ id: dataset.BASE_ROOT_ID, displayName: "基準パス", absolutePath: basePath }, ...legacyRoots] });
+  journals = new JournalService(repository, settings);
+  rememberDataset(basePath, loaded.datasetId);
+  writeJsonAtomic(machinePaths.settingPath, machineRecord(settings));
+  datasetState = { status: "ready", message: "", lockHolder: null };
+  stopHeartbeat = dataset.startLockHeartbeat(basePath, settings.machineId, lock.startedAt, (holder) => {
+    stopHeartbeat = null;
+    closeDataset();
+    datasetState = { status: "locked", message: "別の場所でこのデータが開かれたため、こちらでは閉じました。", lockHolder: holder };
+  });
+  dataset.applyFolderIcon(basePath, projectRoot);
+}
+
+function openConfiguredDataset() {
+  if (!settings.basePath) return;
+  try {
+    if (!statSync(settings.basePath).isDirectory()) throw new Error("not a directory");
+  } catch { datasetState = { status: "missing", message: "基準パスのフォルダが見つかりません。接続や同期の状態を確認してください。", lockHolder: null }; return; }
+  try { openDataset(settings.basePath); }
+  catch (error) {
+    datasetState = error.statusCode === 423 ? { status: "locked", message: error.message, lockHolder: error.lockHolder } : { status: "missing", message: error.message, lockHolder: null };
+  }
+}
+openConfiguredDataset();
 const thumbnailDirectory = path.join(runtimePaths.runtimeDirectory, "paper-thumbnails");
 mkdirSync(thumbnailDirectory, { recursive: true, mode: 0o700 });
-function validateLibraryReference(input, editing = false) {
+function validateLibraryReference(input, editing = false, current = null) {
   const value=validateLibraryItem(input,editing);
   if (value.sourceRootId) {
-    const expectedRoot={book:"books",textbook:"textbooks",paper:"papers"}[value.itemType];
-    if(value.sourceRootId!==expectedRoot)throw new Error("資料種別に対応する基準パスを使用してください。");
+    // 基準パス外を指す旧参照は、場所を変えない編集に限りそのまま保存できる（再リンクは設定画面で行う）。
+    if (editing && current && value.sourceRootId === current.sourceRootId && value.sourceRelativePath === current.sourceRelativePath && value.sourceRootId !== dataset.BASE_ROOT_ID) return value;
+    if(value.sourceRootId!==dataset.BASE_ROOT_ID)throw new Error("基準パス内のPDFを選択してください。");
     const target=resolveAllowedTarget(settings,value.sourceRootId,value.sourceRelativePath);
     if (!statSync(target).isFile()) throw new Error('PDFファイルを選択してください。');
   }
@@ -77,6 +169,10 @@ const staticFiles = new Map([
   ["/css/fonts.css", ["css/fonts.css", "text/css; charset=utf-8"]],
   ["/js/markup.js", ["js/markup.js", "text/javascript; charset=utf-8"]],
   ["/js/api-client.js", ["js/api-client.js", "text/javascript; charset=utf-8"]],
+  ["/js/i18n.js", ["js/i18n.js", "text/javascript; charset=utf-8"]],
+  ["/js/i18n-en.js", ["js/i18n-en.js", "text/javascript; charset=utf-8"]],
+  ["/js/dialog.js", ["js/dialog.js", "text/javascript; charset=utf-8"]],
+  ["/js/dataset.js", ["js/dataset.js", "text/javascript; charset=utf-8"]],
   ["/js/app.js", ["js/app.js", "text/javascript; charset=utf-8"]],
   ["/js/editor.js", ["js/editor.js", "text/javascript; charset=utf-8"]],
   ["/js/todo.js", ["js/todo.js", "text/javascript; charset=utf-8"]],
@@ -95,6 +191,16 @@ const staticFiles = new Map([
   ["/assets/help-library.svg", ["assets/help-library.svg", "image/svg+xml"]],
   ["/assets/help-todo.svg", ["assets/help-todo.svg", "image/svg+xml"]],
   ["/assets/help-timer.svg", ["assets/help-timer.svg", "image/svg+xml"]],
+  ["/assets/help-timetable.en.svg", ["assets/help-timetable.en.svg", "image/svg+xml"]],
+  ["/assets/help-calendar.en.svg", ["assets/help-calendar.en.svg", "image/svg+xml"]],
+  ["/assets/help-file-roots.en.svg", ["assets/help-file-roots.en.svg", "image/svg+xml"]],
+  ["/assets/help-storage.en.svg", ["assets/help-storage.en.svg", "image/svg+xml"]],
+  ["/assets/help-daily-record.en.svg", ["assets/help-daily-record.en.svg", "image/svg+xml"]],
+  ["/assets/help-worktree.en.svg", ["assets/help-worktree.en.svg", "image/svg+xml"]],
+  ["/assets/help-files.en.svg", ["assets/help-files.en.svg", "image/svg+xml"]],
+  ["/assets/help-library.en.svg", ["assets/help-library.en.svg", "image/svg+xml"]],
+  ["/assets/help-todo.en.svg", ["assets/help-todo.en.svg", "image/svg+xml"]],
+  ["/assets/help-timer.en.svg", ["assets/help-timer.en.svg", "image/svg+xml"]],
   ["/assets/fonts/NotoSansJP.ttf", ["assets/fonts/NotoSansJP.ttf", "font/ttf"]],
   ["/assets/fonts/RoundedMplus1c-Regular.ttf", ["assets/fonts/RoundedMplus1c-Regular.ttf", "font/ttf"]],
   ["/assets/fonts/ShipporiMincho-Regular.ttf", ["assets/fonts/ShipporiMincho-Regular.ttf", "font/ttf"]],
@@ -217,9 +323,11 @@ async function pickRelativePath(rootId, kind) {
   return relativePath;
 }
 
-async function pickRootFolder(promptText = "Tick Tock Tomeで参照する基準フォルダを選択してください") {
+async function pickRootFolder(promptText = "Tomeletで参照する基準フォルダを選択してください") {
   let selected;
-  if (process.platform === "darwin") {
+  // 自動テスト専用：OSの選択画面を開かず、指定したフォルダを選んだものとして扱う。
+  if (process.env.TICKTOCKTOME_TEST_PICK_FOLDER) selected = process.env.TICKTOCKTOME_TEST_PICK_FOLDER;
+  else if (process.platform === "darwin") {
     const script = `tell application "Finder"\nactivate\nset chosenItem to choose folder with prompt "${promptText.replace(/["\\]/g, "")}"\nend tell\nreturn POSIX path of chosenItem`;
     selected = await runPicker("/usr/bin/osascript", ["-e", script]);
   } else if (process.platform === "win32") {
@@ -233,35 +341,74 @@ async function pickRootFolder(promptText = "Tick Tock Tomeで参照する基準�
   return absolutePath;
 }
 
-async function chooseContentLocation(input) {
-  if (Number(input?.revision) !== settings.revision) { const error = new Error("設定が別の画面で変更されました。再読み込みしてください。"); error.statusCode = 409; throw error; }
-  const selected = await pickRootFolder("日記・時間割・資料などの共有データ保存先を選択してください");
-  const target = existsSync(databasePathIn(selected)) ? selected : path.join(selected, "TickTockTomeData");
-  if (path.resolve(target) === path.resolve(runtimePaths.contentDirectory)) return { contentLocation: target, revision: settings.revision, restartRequired: false };
-  const targetPaths = pathsFor(machinePaths.dataDirectory, target);
-  for (const directory of [targetPaths.databaseDirectory, targetPaths.backupDirectory, targetPaths.exportDirectory, targetPaths.quarantineDirectory, targetPaths.uploadsDirectory]) mkdirSync(directory, { recursive: true, mode: 0o700 });
-  if (!existsSync(targetPaths.databasePath)) {
-    const verified = await createVerifiedBackup(runtimePaths.databasePath, runtimePaths.backupDirectory, "before-storage-move");
-    copyFileSync(verified, targetPaths.databasePath, 0);
-    if (existsSync(runtimePaths.uploadsDirectory)) cpSync(runtimePaths.uploadsDirectory, targetPaths.uploadsDirectory, { recursive: true, force: false, errorOnExist: false });
-  } else {
-    const { DatabaseSync } = require("node:sqlite");
-    const candidate = new DatabaseSync(targetPaths.databasePath, { readOnly: true });
-    try { if (candidate.prepare("PRAGMA integrity_check").get().integrity_check !== "ok") throw new Error("選択先のTick Tock Tomeデータベースが破損しています。"); } finally { candidate.close(); }
-  }
-  const saved = { schemaVersion: 1, revision: settings.revision + 1, port: settings.port, fileRoots: settings.fileRoots, theme: settings.theme, fontPreset: settings.fontPreset, localLlm: settings.localLlm, hiddenTagIds: settings.hiddenTagIds, contentDirectory: target };
-  const { writeJsonAtomic } = require("./settings.js");
-  writeJsonAtomic(machinePaths.settingPath, saved);
-  settings.revision = saved.revision; settings.contentDirectory = target;
-  return { contentLocation: target, revision: saved.revision, restartRequired: true };
+function publicFileRoots() {
+  return settings.fileRoots.map(({ id, displayName, absolutePath, legacy }) => {
+    let available = false;
+    try { available = Boolean(absolutePath) && statSync(realpathSync(absolutePath)).isDirectory(); } catch { /* 移動・削除・未接続 */ }
+    return { id, displayName: displayName || id, absolutePath, available, legacy: Boolean(legacy) };
+  });
 }
 
-function publicFileRoots() {
-  return settings.fileRoots.map(({ id, displayName, absolutePath }) => {
-    let available = false;
-    try { available = statSync(realpathSync(absolutePath)).isDirectory(); } catch { /* 移動・削除・未接続 */ }
-    return { id, displayName: displayName || id, absolutePath, available };
-  });
+// 連携アプリが旧基準パスIDで送ってきた場所を、基準パスからの相対パスへ読み替える。
+function translateLegacyReference(rootId, relativePath) {
+  const prefix = currentDataset?.legacyRoots?.[rootId];
+  if (rootId === dataset.BASE_ROOT_ID || typeof prefix !== "string" || !relativePath) return { rootId, relativePath };
+  return { rootId: dataset.BASE_ROOT_ID, relativePath: dataset.joinRelative(prefix, relativePath) };
+}
+
+function datasetSummary() {
+  return { id: settings.datasetId, basePath: settings.basePath, directoryName: DATASET_DIRECTORY_NAME, unresolved: dataset.unresolvedReferences(database), legacyAvailable: legacyAvailable() };
+}
+
+function legacyAvailable() {
+  if (!settings.legacy || settings.legacy.migratedAt) return false;
+  return existsSync(pathsFor(machinePaths.dataDirectory, settings.legacy.contentDirectory || machinePaths.dataDirectory).databasePath);
+}
+
+function setupPayload() {
+  return { setupRequired: true, setup: { ...datasetState, basePath: settings.basePath, legacyAvailable: legacyAvailable() }, knownDatasets: publicKnownDatasets(), theme: settings.theme, themeMode: settings.themeMode, batteryColors: settings.batteryColors, fontPreset: settings.fontPreset, illumination: settings.illumination, characterSpeed: settings.characterSpeed, language: settings.language, settingsRevision: settings.revision, platform: process.platform };
+}
+
+function requireRevision(input) {
+  if (Number(input?.revision) !== settings.revision) throw Object.assign(new Error("設定が別の画面で変更されました。再読み込みしてください。"), { statusCode: 409 });
+}
+
+// フォルダを選ばせ、既存データの有無（ID）を返す。実パスはサーバー側で一時保持する。
+async function chooseBasePath(input) {
+  requireRevision(input);
+  const basePath = dataset.normalizeBasePath(await pickRootFolder("基準パスにするフォルダを選択してください"));
+  const existing = dataset.readDataset(basePath);
+  const token = randomUUID();
+  pendingBaseSelections.clear();
+  pendingBaseSelections.set(token, { basePath, createdAt: Date.now() });
+  const current = Boolean(settings.basePath) && path.resolve(settings.basePath) === basePath;
+  return { token, basePath, existing: existing ? { datasetId: existing.datasetId } : null, current, legacyAvailable: legacyAvailable(), lockHolder: existing && dataset.lockIsActive(dataset.readLock(basePath), settings.machineId) ? { hostname: dataset.readLock(basePath).hostname } : null };
+}
+
+function takeSelection(token) {
+  const selection = pendingBaseSelections.get(String(token || ""));
+  if (!selection || Date.now() - selection.createdAt > 10 * 60 * 1000) throw new Error("フォルダの選択からやり直してください。");
+  return selection;
+}
+
+async function applyBasePath(input) {
+  requireRevision(input);
+  const { basePath } = takeSelection(input.token);
+  if (!dataset.readDataset(basePath)) {
+    const datasetId = dataset.validateDatasetId(input.datasetId);
+    const migrate = Boolean(input.migrateLegacy) && legacyAvailable();
+    const prefixes = settings.legacy ? dataset.legacyRootPrefixes(basePath, settings.legacy.fileRoots) : {};
+    const options = { datasetId, settings: migrate ? settings.legacy : {}, legacyRoots: migrate ? prefixes : {} };
+    if (!migrate) dataset.createDataset(basePath, options);
+    else {
+      // 旧DBは読み取って複製するだけで変更しない。複製・変換は一時フォルダで行い、成功した場合だけ完成させる。
+      await dataset.createDatasetWith(basePath, options, (targetDirectory) => dataset.migrateLegacyData({ legacy: settings.legacy, basePath, machineDataDirectory: machinePaths.dataDirectory, projectRoot, targetDirectory }));
+      settings.legacy = { ...settings.legacy, migratedAt: new Date().toISOString() };
+    }
+  }
+  openDataset(basePath, { force: Boolean(input.force) });
+  pendingBaseSelections.clear();
+  return { datasetId: settings.datasetId, revision: settings.revision };
 }
 
 function validTimestamp(value) {
@@ -328,6 +475,7 @@ function validateActivityEvents(body) {
     if (event.endedAt && (!validTimestamp(event.endedAt) || Date.parse(event.endedAt) < Date.parse(event.startedAt))) throw new Error("作業履歴の終了日時が正しくありません。");
     if (event.sourceUpdatedAt && !validTimestamp(event.sourceUpdatedAt)) throw new Error("作業履歴の更新日時が正しくありません。");
     if (event.relativePath && !safeRelativePath(event.relativePath)) throw new Error("作業履歴のファイルパスが正しくありません。");
+    if (event.rootId && event.relativePath) Object.assign(event, translateLegacyReference(event.rootId, event.relativePath));
     return { externalId: event.externalId.slice(0, 300), startedAt: event.startedAt, endedAt: event.endedAt || null, applicationName: String(event.applicationName || "").slice(0, 300), windowTitle: String(event.windowTitle || "").slice(0, 2000), rootId: event.rootId || null, relativePath: event.relativePath || null, projectName: String(event.projectName || "").slice(0, 300), sourceRevision: positiveRevision(event.sourceRevision), sourceUpdatedAt: event.sourceUpdatedAt || null };
   });
 }
@@ -336,6 +484,7 @@ function validateFileItems(body) {
   if (!Array.isArray(body.items) || body.items.length > 1000) throw new Error("ファイル索引は1000件以下の配列にしてください。");
   const roots = new Set(settings.fileRoots.map((root) => root.id));
   return body.items.map((item) => {
+    if (item && typeof item.relativePath === "string") Object.assign(item, translateLegacyReference(item.rootId, item.relativePath));
     if (!item || typeof item.externalId !== "string" || !item.externalId || !roots.has(item.rootId) || !safeRelativePath(item.relativePath)) throw new Error("ファイル索引の必須項目が正しくありません。");
     if (item.sizeBytes != null && (!Number.isSafeInteger(item.sizeBytes) || item.sizeBytes < 0)) throw new Error("ファイルサイズが正しくありません。");
     if (item.modifiedAt && !validTimestamp(item.modifiedAt)) throw new Error("ファイル更新日時が正しくありません。");
@@ -356,7 +505,14 @@ async function handle(request, response) {
     catch { sendJson(response, 404, { error: "ファイルが見つかりません。" }); }
     return;
   }
-  if (request.method === "GET" && pathname === "/api/v1/bootstrap") return sendJson(response, 200, { dashboard: repository.dashboard(), tagCategories: repository.listTagCategories(), tags: repository.listTags(), archivedTags: repository.listTags(true).filter(tag=>tag.archivedAt), authorSuggestions: repository.listLibraryAuthors(), fileRoots: publicFileRoots(), theme: settings.theme, fontPreset: settings.fontPreset, localLlm: settings.localLlm, hiddenTagIds: settings.hiddenTagIds, contentLocation: settings.contentDirectory, settingsRevision: settings.revision, platform: process.platform, memoApp: { installed: Boolean(memoCompanion()), name: "PopNote!" } });
+  if (request.method === "GET" && pathname === "/api/v1/bootstrap" && !repository) return sendJson(response, 200, setupPayload());
+  if (request.method === "POST" && pathname === "/api/v1/dataset:choose") { requireUiOrigin(request); return sendJson(response, 200, await chooseBasePath(await readJsonBody(request))); }
+  if (request.method === "POST" && pathname === "/api/v1/dataset:reopen") { requireUiOrigin(request); const body = await readJsonBody(request); requireRevision(body); if (!settings.basePath) throw new Error("基準パスを選択してください。"); openDataset(settings.basePath, { force: Boolean(body.force) }); return sendJson(response, 200, { datasetId: settings.datasetId, revision: settings.revision }); }
+  if (request.method === "POST" && pathname === "/api/v1/dataset:switch") { requireUiOrigin(request); const body = await readJsonBody(request); requireRevision(body); openDataset(knownDatasetByKey(body.key).basePath, { force: Boolean(body.force) }); return sendJson(response, 200, { datasetId: settings.datasetId, revision: settings.revision }); }
+  if (request.method === "POST" && pathname === "/api/v1/dataset:forget") { requireUiOrigin(request); const body = await readJsonBody(request); requireRevision(body); const entry = knownDatasetByKey(body.key); if (currentDataset && entry.basePath === settings.basePath) throw new Error("開いている基準パスは一覧から外せません。"); settings.knownDatasets = settings.knownDatasets.filter((item) => item !== entry); persistSettings("machine", { ...settings, revision: ++settings.revision }); return sendJson(response, 200, { revision: settings.revision }); }
+  if (request.method === "POST" && pathname === "/api/v1/dataset:apply") { requireUiOrigin(request); return sendJson(response, 200, await applyBasePath(await readJsonBody(request))); }
+  if (!repository && pathname.startsWith("/api/")) return sendJson(response, 503, { error: "基準パスを設定してください。", setupRequired: true });
+  if (request.method === "GET" && pathname === "/api/v1/bootstrap") return sendJson(response, 200, { dashboard: repository.dashboard(), tagCategories: repository.listTagCategories(), tags: repository.listTags(), archivedTags: repository.listTags(true).filter(tag=>tag.archivedAt), authorSuggestions: repository.listLibraryAuthors(), fileRoots: publicFileRoots(), theme: settings.theme, themeMode: settings.themeMode, batteryColors: settings.batteryColors, fontPreset: settings.fontPreset, localLlm: settings.localLlm, hiddenTagIds: settings.hiddenTagIds, language: settings.language, illumination: settings.illumination, characterSpeed: settings.characterSpeed, dataset: datasetSummary(), knownDatasets: publicKnownDatasets(), settingsRevision: settings.revision, platform: process.platform, memoApp: { installed: Boolean(memoCompanion()), name: "PopNote!" } });
   if (request.method === "GET" && pathname === "/api/v1/journals") return sendJson(response, 200, { items: repository.listJournals({ query: url.searchParams.get("q") || "", tagId: url.searchParams.get("tag") || "", limit: Number(url.searchParams.get("limit")) || 100, offset: Number(url.searchParams.get("offset")) || 0 }) });
   if (request.method === "GET" && pathname.startsWith("/api/v1/journals/by-date/")) return sendJson(response, 200, { item: repository.journalByDate(pathname.slice(25)) });
   if (request.method === "GET" && /^\/api\/v1\/journals\/[^/]+$/.test(pathname)) return sendJson(response, 200, { item: repository.journalById(pathname.split("/").at(-1)) });
@@ -378,7 +534,7 @@ async function handle(request, response) {
     response.end(await readFile(path.join(runtimePaths.uploadsDirectory, item.storedName))); return;
   }
   if (request.method === "GET" && pathname === "/api/v1/files") return sendJson(response, 200, { items: repository.listFiles(Number(url.searchParams.get("limit")) || 500, Number(url.searchParams.get("offset")) || 0), total: repository.fileCount() });
-  if (request.method === "POST" && pathname === "/api/v1/files:reference") { requireUiOrigin(request); const body=await readJsonBody(request); if(body.rootId!=="files")throw new Error("ファイル用の基準パスを使用してください。"); const target=resolveAllowedTarget(settings,body.rootId,body.relativePath); if(!statSync(target).isFile())throw new Error("ファイルを選択してください。"); return sendJson(response,201,{item:repository.createManagedFile(body.rootId,body.relativePath)}); }
+  if (request.method === "POST" && pathname === "/api/v1/files:reference") { requireUiOrigin(request); const body=await readJsonBody(request); if(body.rootId!==dataset.BASE_ROOT_ID)throw new Error("基準パス内のファイルを選択してください。"); const target=resolveAllowedTarget(settings,body.rootId,body.relativePath); if(!statSync(target).isFile())throw new Error("ファイルを選択してください。"); return sendJson(response,201,{item:repository.createManagedFile(body.rootId,body.relativePath)}); }
   if (request.method === "GET" && /^\/api\/v1\/files\/[^/]+$/.test(pathname)) return sendJson(response, 200, { item: repository.fileById(pathname.split("/").at(-1)) });
   if (request.method === "PUT" && /^\/api\/v1\/files\/[^/]+\/tags$/.test(pathname)) {
     requireUiOrigin(request); const id = pathname.split("/")[4]; const body = await readJsonBody(request);
@@ -390,7 +546,7 @@ async function handle(request, response) {
   }
   if (request.method === "GET" && pathname === "/api/v1/library") {
     const itemType = url.searchParams.get("type") || "";
-    if (!["book", "textbook", "paper"].includes(itemType)) throw new Error("資料種別が正しくありません。");
+    if (!["book", "paper"].includes(itemType)) throw new Error("資料種別が正しくありません。");
     return sendJson(response, 200, { items: repository.listLibraryItems(itemType) });
   }
   if (request.method === "GET" && pathname === "/api/v1/todos") return sendJson(response,200,{items:repository.listTodos()});
@@ -427,7 +583,7 @@ async function handle(request, response) {
     if(!body.on){timerWindowProcess?.kill('SIGTERM');timerWindowProcess=null;}
     else if(!timerWindowProcess){
       if(!['darwin','win32'].includes(process.platform))throw new Error('常駐タイマーはmacOSとWindowsに対応しています。');
-      const child=spawn(process.execPath,[path.join(projectRoot,'scripts/timer-window.js'),String(port),runtimePaths.runtimeDirectory],{stdio:['ignore','ignore','ignore'],shell:false,windowsHide:true});
+      const child=spawn(process.execPath,[path.join(projectRoot,'scripts/timer-window.js'),String(port),runtimePaths.runtimeDirectory,settings.language],{stdio:['ignore','ignore','ignore'],shell:false,windowsHide:true});
       timerWindowProcess=child;child.once('exit',()=>{if(timerWindowProcess===child)timerWindowProcess=null;});child.once('error',()=>{if(timerWindowProcess===child)timerWindowProcess=null;});
     }
     return sendJson(response,200,{on:Boolean(timerWindowProcess)});
@@ -440,7 +596,7 @@ async function handle(request, response) {
     if (memoId && !/^memo-[0-9a-f-]{36}$/.test(memoId)) throw new Error("メモの指定が正しくありません。");
     const companion = memoCompanion();
     if (!companion) { const error = new Error("メモを開くには、連携アプリPopNote!（macOS）をインストールしてください。"); error.statusCode = 404; throw error; }
-    const opened = await new Promise((resolve) => { const child = spawn("/usr/bin/open", [`${companion.urlScheme}://${memoId ? `open/${memoId}` : "new"}`], { stdio: "ignore", shell: false }); child.once("error", () => resolve(false)); child.once("exit", (code) => resolve(code === 0)); });
+    const opened = await new Promise((resolve) => { const child = spawn("/usr/bin/open", [`${companion.urlScheme}://${memoId ? `open/${memoId}?dataset=${datasetKey(settings.basePath)}` : "new"}`], { stdio: "ignore", shell: false }); child.once("error", () => resolve(false)); child.once("exit", (code) => resolve(code === 0)); });
     if (!opened) { const error = new Error("PopNote!が見つかりません。アプリを移動・削除した場合は、PopNote!を一度起動し直してください。"); error.statusCode = 404; throw error; }
     return sendJson(response, 200, { ok: true });
   }
@@ -449,13 +605,13 @@ async function handle(request, response) {
   if (request.method === "DELETE" && /^\/api\/v1\/todos\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const body=await readJsonBody(request); repository.deleteTodo(pathname.split('/').at(-1),body.revision); return sendJson(response,200,{ok:true}); }
   if (request.method === "POST" && pathname === "/api/v1/library:reference-pdf") {
     requireUiOrigin(request); const body=await readJsonBody(request);
-    if (!["book","textbook","paper"].includes(body.itemType) || !/\.pdf$/i.test(body.relativePath || "")) throw new Error("PDFを選択してください。");
-    if(body.rootId!==({book:"books",textbook:"textbooks",paper:"papers"}[body.itemType]))throw new Error("資料種別に対応する基準パスを使用してください。");
+    if (!["book","paper"].includes(body.itemType) || !/\.pdf$/i.test(body.relativePath || "")) throw new Error("PDFを選択してください。");
+    if(body.rootId!==dataset.BASE_ROOT_ID)throw new Error("基準パス内のPDFを選択してください。");
     const target=resolveAllowedTarget(settings,body.rootId,body.relativePath);
     if (!statSync(target).isFile()) throw new Error("PDFファイルを選択してください。");
     return sendJson(response,201,{item:repository.createReferencedLibraryItem(body.itemType,body.rootId,body.relativePath)});
   }
-  if (request.method === "POST" && pathname === "/api/v1/library:extract-metadata") { requireUiOrigin(request); const body=await readJsonBody(request); if(!["book","textbook","paper"].includes(body.itemType))throw new Error("資料種別が正しくありません。"); const expected={book:"books",textbook:"textbooks",paper:"papers"}[body.itemType];if(body.rootId!==expected)throw new Error("資料種別に対応する基準パスを使用してください。");const target=resolveAllowedTarget(settings,body.rootId,body.relativePath);if(!statSync(target).isFile())throw new Error("PDFを選択してください。");return sendJson(response,200,{metadata:await extractLibraryMetadata(settings,target,body.itemType)});}
+  if (request.method === "POST" && pathname === "/api/v1/library:extract-metadata") { requireUiOrigin(request); const body=await readJsonBody(request); if(!["book","paper"].includes(body.itemType))throw new Error("資料種別が正しくありません。"); if(body.rootId!==dataset.BASE_ROOT_ID)throw new Error("基準パス内のPDFを選択してください。");const target=resolveAllowedTarget(settings,body.rootId,body.relativePath);if(!statSync(target).isFile())throw new Error("PDFを選択してください。");return sendJson(response,200,{metadata:await extractLibraryMetadata(settings,target,body.itemType)});}
   if (request.method === "GET" && /^\/api\/v1\/library\/[^/]+\/pdf$/.test(pathname)) {
     const item=repository.libraryItemById(pathname.split('/')[4]);
     if (!item?.sourceRootId || !/\.pdf$/i.test(item.sourceRelativePath || "")) return sendJson(response,404,{error:"PDF参照がありません。"});
@@ -465,7 +621,7 @@ async function handle(request, response) {
   }
   if (request.method === "GET" && /^\/api\/v1\/library\/[^/]+\/thumbnail$/.test(pathname)) {
     const item=repository.libraryItemById(pathname.split('/')[4]);
-    if (!item || item.itemType !== "paper") return sendJson(response,404,{error:"論文が見つかりません。"});
+    if (!item || item.itemType !== "paper") return sendJson(response,404,{error:"文書が見つかりません。"});
     let thumbnail=null;
     try { thumbnail=await paperThumbnail(item); } catch { /* 生成できない環境では軽量な書類画像を返す */ }
     if (thumbnail) { response.writeHead(200,headers("image/png")); response.end(await readFile(thumbnail)); return; }
@@ -473,8 +629,8 @@ async function handle(request, response) {
   }
   if (request.method === "GET" && /^\/api\/v1\/library\/[^/]+$/.test(pathname)) return sendJson(response, 200, { item: repository.libraryItemById(pathname.split("/").at(-1)) });
   if (request.method === "POST" && pathname === "/api/v1/library") { requireUiOrigin(request); return sendJson(response, 201, { item: repository.createLibraryItem(validateLibraryReference(await readJsonBody(request))) }); }
-  if (request.method === "POST" && pathname === "/api/v1/library:upload-pdf") { requireUiOrigin(request); const body = await readJsonBody(request); if (!['book','textbook','paper'].includes(body?.itemType)) throw new Error("資料種別が正しくありません。"); const upload = repository.managedUploadById(body.uploadId); if (!upload || upload.mimeType !== 'application/pdf') throw new Error("PDFを確認できません。"); return sendJson(response, 201, { item: repository.createUploadedLibraryItem(body.itemType, upload.id, upload.originalName) }); }
-  if (request.method === "PUT" && /^\/api\/v1\/library\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); return sendJson(response, 200, { item: repository.updateLibraryItem(id, validateLibraryReference(await readJsonBody(request), true)) }); }
+  if (request.method === "POST" && pathname === "/api/v1/library:upload-pdf") { requireUiOrigin(request); const body = await readJsonBody(request); if (!['book','paper'].includes(body?.itemType)) throw new Error("資料種別が正しくありません。"); const upload = repository.managedUploadById(body.uploadId); if (!upload || upload.mimeType !== 'application/pdf') throw new Error("PDFを確認できません。"); return sendJson(response, 201, { item: repository.createUploadedLibraryItem(body.itemType, upload.id, upload.originalName) }); }
+  if (request.method === "PUT" && /^\/api\/v1\/library\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1), current=repository.libraryItemById(id); return sendJson(response, 200, { item: repository.updateLibraryItem(id, validateLibraryReference(await readJsonBody(request), true, current)) }); }
   if (request.method === "DELETE" && /^\/api\/v1\/library\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); const body = await readJsonBody(request); repository.deleteLibraryItem(id, Number(body.revision)); return sendJson(response, 200, { ok: true }); }
   if (request.method === "PUT" && /^\/api\/v1\/journals\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); const item = repository.updateJournal(id, journals.validate(await readJsonBody(request), true)); return sendJson(response, 200, { item }); }
   if (request.method === "DELETE" && /^\/api\/v1\/journals\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); const body = await readJsonBody(request); repository.deleteJournal(id, Number(body.revision)); return sendJson(response, 200, { ok: true }); }
@@ -501,18 +657,14 @@ async function handle(request, response) {
   if (request.method === "DELETE" && /^\/api\/v1\/library-trash\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); const body = await readJsonBody(request); await createVerifiedBackup(runtimePaths.databasePath, runtimePaths.backupDirectory, "before-library-purge"); repository.purgeLibraryItem(id, Number(body.revision)); return sendJson(response, 200, { ok: true }); }
   if (request.method === "POST" && pathname === "/api/v1/open-path") { requireUiOrigin(request); const body = await readJsonBody(request); const target = resolveAllowedTarget(settings, body.rootId, body.relativePath); openTarget(target).unref(); return sendJson(response, 200, { ok: true }); }
   if (request.method === "POST" && pathname === "/api/v1/pick-path") { requireUiOrigin(request); const body = await readJsonBody(request); return sendJson(response, 200, { relativePath: await pickRelativePath(body.rootId, body.kind) }); }
-  if (request.method === "POST" && pathname === "/api/v1/settings/file-roots:choose") {
-    requireUiOrigin(request);
-    const body = await readJsonBody(request);
-    validateRootInput(body);
-    const absolutePath = await pickRootFolder();
-    return sendJson(response, 200, { item: upsertFileRoot(settings, runtimePaths.settingPath, body, absolutePath) });
-  }
-  if (request.method === "PUT" && pathname === "/api/v1/settings/theme") { requireUiOrigin(request); return sendJson(response, 200, updateTheme(settings, runtimePaths.settingPath, await readJsonBody(request))); }
-  if (request.method === "PUT" && pathname === "/api/v1/settings/font") { requireUiOrigin(request); return sendJson(response, 200, updateFontPreset(settings, runtimePaths.settingPath, await readJsonBody(request))); }
-  if (request.method === "PUT" && pathname === "/api/v1/settings/local-llm") { requireUiOrigin(request); return sendJson(response, 200, updateLocalLlm(settings, runtimePaths.settingPath, await readJsonBody(request))); }
-  if (request.method === "PUT" && pathname === "/api/v1/settings/tag-visibility") { requireUiOrigin(request); return sendJson(response, 200, updateTagVisibility(settings, runtimePaths.settingPath, await readJsonBody(request))); }
-  if (request.method === "POST" && pathname === "/api/v1/settings/content-location:choose") { requireUiOrigin(request); return sendJson(response, 200, await chooseContentLocation(await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/dataset") { requireUiOrigin(request); return sendJson(response, 200, updateDatasetId(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "POST" && pathname === "/api/v1/dataset/relink") { requireUiOrigin(request); const body = await readJsonBody(request); const target = resolveAllowedTarget(settings, dataset.BASE_ROOT_ID, body.relativePath); if (body.kind !== "journal-file" && !statSync(target).isFile()) throw new Error("ファイルを選択してください。"); return sendJson(response, 200, dataset.relinkReference(database, body.kind, String(body.id || ""), body.relativePath)); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/theme") { requireUiOrigin(request); return sendJson(response, 200, updateTheme(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/language") { requireUiOrigin(request); return sendJson(response, 200, updateLanguage(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/motion") { requireUiOrigin(request); return sendJson(response, 200, updateMotion(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/font") { requireUiOrigin(request); return sendJson(response, 200, updateFontPreset(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/local-llm") { requireUiOrigin(request); return sendJson(response, 200, updateLocalLlm(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/tag-visibility") { requireUiOrigin(request); return sendJson(response, 200, updateTagVisibility(settings, persistSettings, await readJsonBody(request))); }
   if (request.method === "POST" && pathname === "/api/v1/integrations/activity-events:batch") { const client = authorizeIntegration(request, runtimePaths.integrationsPath, "activity:write"); if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" }); const body = await readJsonBody(request); return sendJson(response, 200, repository.upsertActivityBatch(validateSource(body, client), validateActivityEvents(body))); }
   if (request.method === "POST" && pathname === "/api/v1/integrations/file-index:batch") { const client = authorizeIntegration(request, runtimePaths.integrationsPath, "files:write"); if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" }); const body = await readJsonBody(request); return sendJson(response, 200, repository.upsertFileIndexBatch(validateSource(body, client), validateFileItems(body))); }
   if (request.method === "GET" && pathname === "/api/v1/integrations/command/search") { const client = authorizeIntegration(request, runtimePaths.integrationsPath, "search:read"); if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" }); return sendJson(response, 200, repository.search(url.searchParams.get("q") || "")); }
@@ -531,9 +683,18 @@ async function handle(request, response) {
 async function handleMemoIntegration(request, response, url, route) {
   const client = authorizeIntegration(request, runtimePaths.integrationsPath, request.method === "GET" ? "memo:read" : "memo:write");
   if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" });
+  // 連携アプリが想定しているデータセットと、本体が開いているデータセットが違う場合は読み書きしない。
+  const expectedKey = String(request.headers["x-ticktocktome-dataset"] || "");
+  const current = { id: settings.datasetId, key: datasetKey(settings.basePath) };
+  if (expectedKey && expectedKey !== current.key) return sendJson(response, 409, { error: "Tomeletで開いている基準パスが変わりました。", code: "dataset-mismatch", current });
   const memoPath = /^memos\/(memo-[0-9a-f-]{36})$/.exec(route);
-  if (request.method === "GET" && route === "context") return sendJson(response, 200, { tagCategories: repository.listTagCategories(), tags: repository.listTags(), fileRoots: publicFileRoots().map(({ id, displayName, available }) => ({ id, displayName, available })) });
-  if (request.method === "GET" && route === "memos") return sendJson(response, 200, { items: repository.listMemos({ query: url.searchParams.get("q") || "", limit: Number(url.searchParams.get("limit")) || 200 }) });
+  // PopNote!は保存先フォルダを自分で選ぶため、本体が開いている基準パスの場所も返す（トークンを持つ連携アプリだけ）。
+  if (request.method === "GET" && route === "context") return sendJson(response, 200, { dataset: { ...current, basePath: settings.basePath }, tagCategories: repository.listTagCategories(), tags: repository.listTags(), fileRoots: publicFileRoots().map(({ id, displayName, available }) => ({ id, displayName, available })) });
+  if (request.method === "GET" && route === "memos") {
+    const from = url.searchParams.get("from") || "", to = url.searchParams.get("to") || "";
+    if ((from && !validTimestamp(from)) || (to && !validTimestamp(to))) throw new Error("期間はISO形式の日時で指定してください。");
+    return sendJson(response, 200, { items: repository.listMemos({ query: url.searchParams.get("q") || "", limit: Number(url.searchParams.get("limit")) || 200, from, to }) });
+  }
   if (request.method === "GET" && memoPath) { const item = repository.memoById(memoPath[1]); return item ? sendJson(response, 200, { item }) : sendJson(response, 404, { error: "メモが見つかりません。" }); }
   if (request.method === "POST" && route === "memos") return sendJson(response, 201, { item: repository.createMemo(validateMemo(await readJsonBody(request))) });
   if (request.method === "PUT" && memoPath) return sendJson(response, 200, { item: repository.updateMemo(memoPath[1], validateMemo(await readJsonBody(request), true)) });
@@ -545,9 +706,14 @@ async function handleMemoIntegration(request, response, url, route) {
     return sendJson(response, 201, { item: await saveManagedUpload(body) });
   }
   if (request.method === "POST" && route === "files:pick") {
-    const relativePath = await pickRelativePath("files", "file");
-    if (!statSync(resolveAllowedTarget(settings, "files", relativePath)).isFile()) throw new Error("ファイルを選択してください。");
-    return sendJson(response, 201, { item: repository.createManagedFile("files", relativePath) });
+    const relativePath = await pickRelativePath(dataset.BASE_ROOT_ID, "file");
+    if (!statSync(resolveAllowedTarget(settings, dataset.BASE_ROOT_ID, relativePath)).isFile()) throw new Error("ファイルを選択してください。");
+    return sendJson(response, 201, { item: repository.createManagedFile(dataset.BASE_ROOT_ID, relativePath) });
+  }
+  if (request.method === "POST" && route === "files:reference") {
+    const body = await readJsonBody(request);
+    if (!statSync(resolveAllowedTarget(settings, dataset.BASE_ROOT_ID, body?.relativePath)).isFile()) throw new Error("ファイルを選択してください。");
+    return sendJson(response, 201, { item: repository.createManagedFile(dataset.BASE_ROOT_ID, String(body.relativePath).replace(/\\/g, "/")) });
   }
   const openFile = /^files\/(managed-file-[0-9a-f-]{36}):open$/.exec(route);
   if (request.method === "POST" && openFile) {
@@ -561,10 +727,10 @@ async function handleMemoIntegration(request, response, url, route) {
 
 const server = createServer((request, response) => handle(request, response).catch((error) => {
   const status = error.statusCode || (/UNIQUE constraint failed/.test(error.message) ? 409 : /FOREIGN KEY constraint failed/.test(error.message) ? 400 : 400);
-  sendJson(response, status, { error: error instanceof Error ? error.message : "処理に失敗しました。" });
+  sendJson(response, status, { error: error instanceof Error ? error.message : "処理に失敗しました。", ...(error?.lockHolder ? { lockHolder: error.lockHolder } : {}) });
 }));
 
-server.listen(port, host, () => console.log(`Tick Tock Tome: http://localhost:${port}/`));
-function shutdown() { timerWindowProcess?.kill('SIGTERM'); server.close(() => { database.close(); process.exit(0); }); }
+server.listen(port, host, () => console.log(`Tomelet: http://localhost:${port}/`));
+function shutdown() { timerWindowProcess?.kill('SIGTERM'); server.close(() => { closeDataset(); process.exit(0); }); }
 process.once("SIGTERM", shutdown);
 process.once("SIGINT", shutdown);

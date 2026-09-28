@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { openDatabase } = require("../../scripts/database/connection.js");
+const { validateDailyAction } = require("../../scripts/services/daily-action-service.js");
 const { SqliteRepository } = require("../../scripts/repositories/sqlite-repository.js");
 
 const projectRoot = path.resolve(__dirname, "../..");
@@ -15,7 +16,7 @@ test("日記の作成・検索・競合検知・削除・復元を一連で処�
   const database = openDatabase(path.join(directory, "test.sqlite3"), projectRoot);
   try {
     const repository = new SqliteRepository(database);
-    const created = repository.createJournal({ entryDate: "2026-09-10", title: "Tick Tock Tome設計", bodyMarkdown: "SQLiteで保存する", tagIds: [], projectIds: [], files: [] });
+    const created = repository.createJournal({ entryDate: "2026-09-10", title: "Tomelet設計", bodyMarkdown: "SQLiteで保存する", tagIds: [], projectIds: [], files: [] });
     assert.equal(created.revision, 1);
     assert.equal(repository.journalByDate("2026-09-10").id, created.id);
     assert.equal(repository.search("SQLite").journals.length, 1);
@@ -117,7 +118,7 @@ test("タグをアーカイブしても既存記録との関連を保ち、復�
   }finally{database.close();fs.rmSync(directory,{recursive:true,force:true});}
 });
 
-test("書籍・教科書・論文を共通モデルで作成・編集・分類できる", () => {
+test("書籍・論文を共通モデルで作成・編集・分類できる", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ticktocktome-library-"));
   const database = openDatabase(path.join(directory, "test.sqlite3"), projectRoot);
   try {
@@ -183,6 +184,27 @@ test("管理ファイルをTodoと時間割へ関連付けて、タグと作業�
     assert.equal(listed.todos[0].id, todo.id);
     assert.equal(listed.actions[0].id, action.id);
     assert.equal(repository.fileCount(), 1);
+  } finally {
+    database.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Todoと時間割のアクションへフォルダを添付でき、Todoから続けたアクションにも引き継がれる", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ticktocktome-folders-"));
+  const database = openDatabase(path.join(directory, "test.sqlite3"), projectRoot);
+  try {
+    const repository = new SqliteRepository(database);
+    const todo = repository.saveTodo({ title: "資料を整理", dueDate: "2026-09-28", progress: 0, tagIds: [], managedFileIds: [], libraryIds: [], folderPaths: ["研究/資料/", "研究\\資料", "議事録"] });
+    assert.deepEqual(todo.folderPaths, ["研究/資料", "議事録"]);
+    const updated = repository.saveTodo({ ...todo, folderPaths: ["議事録"] }, todo.id);
+    assert.deepEqual(updated.folderPaths, ["議事録"]);
+    assert.throws(() => repository.saveTodo({ title: "外", folderPaths: ["../外"] }), /添付フォルダ/);
+    assert.throws(() => repository.saveTodo({ title: "外", folderPaths: ["/Users"] }), /添付フォルダ/);
+    const action = repository.createDailyAction(validateDailyAction({ actionDate: "2026-09-28", startTime: "09:00", endTime: "10:00", action: "整理", progress: 0, folderPaths: ["研究/資料"] }));
+    assert.deepEqual(action.folderPaths, ["研究/資料"]);
+    const unchanged = repository.updateDailyAction(action.id, validateDailyAction({ ...action, actionDate: "2026-09-29" }, true));
+    assert.deepEqual(unchanged.folderPaths, ["研究/資料"]);
   } finally {
     database.close();
     fs.rmSync(directory, { recursive: true, force: true });

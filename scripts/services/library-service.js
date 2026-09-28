@@ -1,6 +1,6 @@
 "use strict";
 
-const itemTypes = new Set(["book", "textbook", "paper"]);
+const itemTypes = new Set(["book", "paper"]);
 const statuses = new Set(["unverified", "unread", "reading", "read", "cited"]);
 
 function validateLibraryItem(input, editing = false) {

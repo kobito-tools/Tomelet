@@ -1,7 +1,7 @@
 "use strict";
 
 // メモ本文はcontenteditableのHTMLを保存する。装飾4種・改行・段落・箇条書きと、
-// Tick Tock Tomeへアップロードした画像だけを残し、属性や他のタグはすべて捨てる。
+// Tomeletへアップロードした画像だけを残し、属性や他のタグはすべて捨てる。
 const allowedTags = new Map([
   ["b", "b"], ["strong", "b"], ["i", "i"], ["em", "i"], ["u", "u"],
   ["s", "s"], ["strike", "s"], ["del", "s"],
