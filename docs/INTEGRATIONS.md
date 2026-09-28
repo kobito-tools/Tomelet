@@ -124,33 +124,10 @@ curl -H "Authorization: Bearer REPLACE_WITH_PRIVATE_TOKEN" "http://127.0.0.1:317
 
 PopNote! はトークンを手で設定しません。本体が起動しているときに `node scripts/companion-connect.js popnote --no-launch` を実行し、`config/integrations.json` へ `memo:read`・`memo:write` 権限のトークンを登録します（登録済みなら同じトークン）。このスクリプトは `{"port", "token"}` を標準出力へ返します。`--no-launch` を付けない場合は、サーバーを本体ウィンドウなしで起動してから返します。
 
-書き込み・読み取りに `X-TickTockTome-Dataset: <データセットキー>` を付けると、本体が開いているデータセットと違う場合に409（`{"code": "dataset-mismatch", "current": {"id", "key"}}`）を返して処理しません。
-
-GETは`memo:read`、それ以外は`memo:write`が必要です。パスはすべて `/api/v1/integrations/memo/` からの相対です。
+メモは PopNote! が基準パスの `.kobito-tools/PopNote/` へ直接保存し、タグは `.kobito-tools/Tags/tags.json` で共有します。本体は「PopNote! のメモを本アプリでも表示する」設定のとき、PopNote! のDBを読み取り専用で開いて表示するだけで、メモを書き込みません。そのため連携APIは次の1つだけです（`memo:read` が必要。パスは `/api/v1/integrations/memo/` からの相対）。
 
 | メソッド・パス | 内容 |
 |---|---|
-| `GET context` | 開いているデータセット（`dataset: {id, key, basePath}`）、タグ、タグ分類、基準パス（`base`）の利用可否 |
-| `GET memos?q=&from=&to=` | メモ一覧（見出し・本文・タグ名で検索。`from`・`to` は作成日時の範囲で、ISO形式のUTC） |
-| `GET memos/<id>` | メモ本文、タグ、添付 |
-| `POST memos` | メモ作成。`createdAt` を省略すると現在時刻 |
-| `PUT memos/<id>` | メモ更新。`revision` が古い場合は409 |
-| `DELETE memos/<id>` | ゴミ箱へ移動（`{"revision"}`） |
-| `POST tags` | `{"name"}` と同名のタグを返し、無ければ「その他」に作成 |
-| `POST uploads` | 画像を保存（`{"name","mimeType","base64"}`、25MBまで） |
-| `POST files:pick` | 基準パス内のファイル選択画面を開き、選んだファイルを登録 |
-| `POST files:reference` | `{"relativePath"}` の基準パス内のファイルを登録（連携アプリ側で選んだ場合） |
-| `POST files/<id>:open` | 登録済みファイルをOS標準アプリで開く |
+| `GET context` | 本体が今開いているデータセット（`dataset: {id, key, basePath}`）。PopNote! が保存先の候補として示す |
 
-```json
-{
-  "title": "",
-  "bodyHtml": "<div>会議の<b>決定事項</b></div>",
-  "createdAt": "2026-01-15T05:05:07.000Z",
-  "tagIds": ["tag-example"],
-  "managedFileIds": [],
-  "uploadIds": []
-}
-```
-
-`title` が空なら「01月15日14時05分07秒のノート」形式の見出しを付けます。`bodyHtml` はサーバーで許可リスト（`b`・`i`・`u`・`s`・`br`・`div`・`ul`・`ol`・`li`と、`/api/v1/uploads/<id>/content` を指す `img`）へ整え、属性は保存しません。
+ほかのパスには410（`{"code": "popnote-update-required"}`）を返します。本体経由でメモを保存していた古い PopNote! に更新を促すためです。

@@ -285,8 +285,7 @@ class SqliteRepository {
   listTrash() {
     const journals = this.database.prepare("SELECT id, 'journal' AS entityType, entry_date AS displayDate, title, updated_at AS updatedAt, revision, deleted_at AS deletedAt FROM journal_entries WHERE deleted_at IS NOT NULL").all();
     const library = this.listLibraryTrash().map((item) => ({ ...item, entityType: "library", displayDate: item.year ? String(item.year) : "" }));
-    const memos = this.database.prepare("SELECT id, 'memo' AS entityType, substr(created_at, 1, 10) AS displayDate, title, updated_at AS updatedAt, revision, deleted_at AS deletedAt FROM memos WHERE deleted_at IS NOT NULL").all();
-    return [...journals, ...library, ...memos].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
+    return [...journals, ...library].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
   }
 
   restoreJournal(id, revision) {
@@ -456,6 +455,7 @@ class SqliteRepository {
     return this.resolveDailyAction(id,{...value,outcome:'completed',actualStartTime:value.actualStartTime||item?.actualStartTime||item?.startTime,actualEndTime:value.actualEndTime||timeKey(now)},revision,now);
   }
 
+  // メモはPopNote!のDBの写し（popnote-memos.js）。本体からは読むだけ。
   listMemos({ query = "", limit = 200, from = "", to = "" } = {}) {
     const where = ["m.deleted_at IS NULL"], params = [];
     // from・toは作成日時（UTCのISO形式）の範囲。カレンダーの1か月分などを取り出す。
@@ -472,82 +472,6 @@ class SqliteRepository {
     const tags = this.database.prepare("SELECT tag_id AS tagId FROM memo_tags WHERE memo_id = ? ORDER BY tag_id");
     return this.database.prepare(`SELECT m.id, m.title, substr(m.body_text, 1, 240) AS excerpt, m.created_at AS createdAt, m.updated_at AS updatedAt, m.revision FROM memos m WHERE ${where.join(" AND ")} ORDER BY m.updated_at DESC LIMIT ?`).all(...params)
       .map((row) => ({ ...row, tagIds: tags.all(row.id).map((item) => item.tagId) }));
-  }
-
-  memoById(id, includeDeleted = false) {
-    const memo = this.database.prepare(`SELECT id, title, body_html AS bodyHtml, body_text AS bodyText, created_at AS createdAt, updated_at AS updatedAt, revision, deleted_at AS deletedAt FROM memos WHERE id = ? ${includeDeleted ? "" : "AND deleted_at IS NULL"}`).get(id);
-    if (!memo) return null;
-    memo.tagIds = this.database.prepare("SELECT tag_id AS tagId FROM memo_tags WHERE memo_id = ? ORDER BY tag_id").all(id).map((row) => row.tagId);
-    memo.files = this.database.prepare("SELECT f.id, f.root_id AS rootId, f.relative_path AS relativePath, f.name, f.extension FROM memo_managed_files r JOIN managed_files f ON f.id = r.managed_file_id WHERE r.memo_id = ? AND f.deleted_at IS NULL ORDER BY f.name COLLATE NOCASE").all(id);
-    memo.uploads = this.database.prepare("SELECT u.id, u.original_name AS originalName, u.mime_type AS mimeType, u.size_bytes AS sizeBytes, u.created_at AS createdAt FROM memo_uploads r JOIN managed_uploads u ON u.id = r.upload_id WHERE r.memo_id = ? AND u.deleted_at IS NULL ORDER BY u.created_at").all(id);
-    memo.managedFileIds = memo.files.map((file) => file.id);
-    memo.uploadIds = memo.uploads.map((upload) => upload.id);
-    return memo;
-  }
-
-  createMemo(input) {
-    const id = `memo-${randomUUID()}`, now = new Date().toISOString();
-    transaction(this.database, () => {
-      this.database.prepare("INSERT INTO memos(id, title, body_html, body_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, input.title, input.bodyHtml, input.bodyText, input.createdAt, now);
-      this.replaceMemoRelations(id, input);
-    });
-    return this.memoById(id);
-  }
-
-  updateMemo(id, input) {
-    const now = new Date().toISOString();
-    transaction(this.database, () => {
-      const result = this.database.prepare("UPDATE memos SET title = ?, body_html = ?, body_text = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ? AND deleted_at IS NULL").run(input.title, input.bodyHtml, input.bodyText, now, id, input.revision);
-      if (Number(result.changes) !== 1) { const error = new Error("メモが別の画面で更新されたか、削除されています。再読み込みしてください。"); error.statusCode = 409; throw error; }
-      this.replaceMemoRelations(id, input);
-    });
-    return this.memoById(id);
-  }
-
-  replaceMemoRelations(id, input) {
-    const archivedTags = this.database.prepare("SELECT r.tag_id AS tagId FROM memo_tags r JOIN tags t ON t.id = r.tag_id WHERE r.memo_id = ? AND t.archived_at IS NOT NULL").all(id).map((row) => row.tagId);
-    this.database.prepare("DELETE FROM memo_tags WHERE memo_id = ?").run(id);
-    const addTag = this.database.prepare("INSERT INTO memo_tags(memo_id, tag_id) VALUES (?, ?)");
-    for (const tagId of new Set([...input.tagIds, ...archivedTags])) addTag.run(id, tagId);
-    this.database.prepare("DELETE FROM memo_managed_files WHERE memo_id = ?").run(id);
-    const addFile = this.database.prepare("INSERT INTO memo_managed_files(memo_id, managed_file_id) VALUES (?, ?)");
-    for (const fileId of input.managedFileIds) addFile.run(id, fileId);
-    this.database.prepare("DELETE FROM memo_uploads WHERE memo_id = ?").run(id);
-    const addUpload = this.database.prepare("INSERT INTO memo_uploads(memo_id, upload_id) VALUES (?, ?)");
-    for (const uploadId of input.uploadIds) addUpload.run(id, uploadId);
-  }
-
-  deleteMemo(id, revision) {
-    const now = new Date().toISOString();
-    const result = this.database.prepare("UPDATE memos SET deleted_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ? AND deleted_at IS NULL").run(now, now, id, revision);
-    if (Number(result.changes) !== 1) { const error = new Error("メモを削除できません。再読み込みしてください。"); error.statusCode = 409; throw error; }
-  }
-
-  restoreMemo(id, revision) {
-    const now = new Date().toISOString();
-    const result = this.database.prepare("UPDATE memos SET deleted_at = NULL, updated_at = ?, revision = revision + 1 WHERE id = ? AND revision = ? AND deleted_at IS NOT NULL").run(now, id, revision);
-    if (Number(result.changes) !== 1) { const error = new Error("メモを復元できません。再読み込みしてください。"); error.statusCode = 409; throw error; }
-    return this.memoById(id);
-  }
-
-  purgeMemo(id, revision) {
-    const result = this.database.prepare("DELETE FROM memos WHERE id = ? AND revision = ? AND deleted_at IS NOT NULL").run(id, revision);
-    if (Number(result.changes) !== 1) { const error = new Error("メモを完全削除できません。再読み込みしてください。"); error.statusCode = 409; throw error; }
-  }
-
-  // タグ設定モードで候補を選ばずに確定した名前は、同名タグがあれば再利用し、無ければ「その他」へ作る。
-  findOrCreateTagByName(name) {
-    const value = String(name || "").trim().slice(0, 200);
-    if (!value) throw new Error("タグ名を入力してください。");
-    return transaction(this.database, () => {
-      const existing = this.database.prepare("SELECT id FROM tags WHERE name = ? AND deleted_at IS NULL").get(value);
-      const id = existing?.id || `tag-${randomUUID()}`;
-      if (!existing) {
-        const order = this.database.prepare("SELECT coalesce(max(display_order), 0) + 1 AS next FROM tags WHERE category_id = 'other'").get().next;
-        this.database.prepare("INSERT INTO tags(id, category_id, name, description, display_order) VALUES (?, 'other', ?, '', ?)").run(id, value, order);
-      }
-      return { ...this.listTags(true).find((tag) => tag.id === id), created: !existing };
-    });
   }
 
   timeline(limit = 150) { const rows = this.database.prepare("SELECT id, occurred_at AS occurredAt, event_type AS eventType, title, description FROM timeline_view ORDER BY occurred_at DESC LIMIT ?").all(Math.min(500, Math.max(1, limit))); return this.withTimelineTags(rows); }

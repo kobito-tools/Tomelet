@@ -69,7 +69,7 @@ test("画面用APIと認証付き連携APIの境界を守る", async () => {
     const uploaded = await fetch(`${base}/api/v1/uploads`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ name: "sample.pdf", mimeType: "application/pdf", base64: Buffer.from("%PDF-1.4\ntest").toString("base64") }) });
     assert.equal(uploaded.status, 201);
     const uploadItem = (await uploaded.json()).item;
-    assert.equal(fs.existsSync(path.join(basePath, ".TickTockTome", "uploads", uploadItem.storedName)), true);
+    assert.equal(fs.existsSync(path.join(basePath, ".kobito-tools", "Tomelet", "uploads", uploadItem.storedName)), true);
     const intake = await fetch(`${base}/api/v1/library:upload-pdf`, { method: "POST", headers: { "Content-Type": "application/json", Origin: base }, body: JSON.stringify({ itemType: "book", uploadId: uploadItem.id }) });
     assert.equal(intake.status, 201);
     assert.equal((await intake.json()).item.intakeStatus, "uploaded");

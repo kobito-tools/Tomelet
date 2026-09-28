@@ -1,9 +1,10 @@
-# 基準パスの一本化と切り替え（連携アプリ向け仕様）
+# 基準パスと保存フォルダ（連携アプリ向け仕様）
 
-PopNote! など、Tomelet と連携するアプリの開発者向けにまとめた文書です。Tomelet 本体で行った「基準パスの一本化」の考え方と、メモの保存先を扱うために連携アプリ側で必要になる変更を説明します。
+PopNote! など、Tomelet と連携するアプリの開発者向けにまとめた文書です。Tomelet 本体の「基準パス」と、こびとツール共通の保存フォルダ `.kobito-tools/` の決まりを説明します。
 
-- **1〜4章**：Tomelet 本体の基準パスとデータセットの仕様
-- **5〜6章**：PopNote! がメモの保存先を選び、単独でも保存する仕組み（本体・PopNote! の両方で**実装済み**）
+- **1〜3章**：基準パスとデータセット、保存フォルダの形
+- **4〜5章**：共有タグと、PopNote! のメモの保存・表示（本体・PopNote! の両方で**実装済み**）
+- **6章**：旧形式 `.TickTockTome/` からの移行
 
 ---
 
@@ -12,26 +13,33 @@ PopNote! など、Tomelet と連携するアプリの開発者向けにまとめ
 **基準パスは1か所だけ**です。利用者が選んだフォルダ（例：Google Drive の「マイドライブ」）を基準パスとし、Tomelet のデータはすべてこのフォルダを基準に管理します。
 
 - 書籍・文書・一般ファイルは、基準パスからの**相対パス**だけで参照します。ファイル本体はコピーしません。
-- 以前の「種類別の基準パス」（`files`・`books`・`papers` などのID）は廃止しました。
 - APIで場所を表すときは、常に `rootId: "base"` と `relativePath`（基準パスからの相対パス、区切りは `/`）の組を使います。
 
-## 2. 基準パス＝1つの「データセット」
+## 2. 保存フォルダ `.kobito-tools/`
 
-基準パスは、アカウントやワークスペースのような1つの箱（**データセット**）として扱います。基準パスの直下に隠しフォルダ `.TickTockTome/` を作り、主要データをまとめて保存します。
+基準パスは1つの箱（**データセット**）として扱います。基準パスの直下に隠しフォルダ `.kobito-tools/` を置き、アプリごとのフォルダに分けて保存します。
 
 ```text
 <基準パス>/
-├── Book/ Paper/ …                 ← 利用者のファイル（アプリはコピーしない）
-└── .TickTockTome/                 ← アプリ専用（Tomelet と同じアイコン付き）
-    ├── dataset.json               ← ID（利用者が付けた名前）と共有設定
-    ├── lock.json                  ← 使用中の印（開いている間だけ存在）
-    ├── database/ticktocktome.sqlite3  ← 日記・Todo・時間割・資料・メモなど
-    └── uploads/ backups/ exports/ quarantine/
+├── Book/ Paper/ …                     ← 利用者のファイル（アプリはコピーしない）
+└── .kobito-tools/
+    ├── dataset.json                   ← ID（両アプリ共通）と本体の共有設定
+    ├── Tomelet/                       ← 本体（Tomelet と同じアイコン付き）
+    │   ├── lock.json                  ← 本体の使用中の印
+    │   ├── database/ticktocktome.sqlite3
+    │   └── uploads/ backups/ exports/ quarantine/
+    ├── PopNote/                       ← PopNote!
+    │   ├── lock.json                  ← PopNote! の使用中の印
+    │   ├── database/popnote.sqlite3   ← メモ（本体と同じ表の形）
+    │   └── uploads/                   ← メモに貼った画像
+    └── Tags/tags.json                 ← 両アプリで共有するタグ
 ```
 
-- **ID**：利用者が付ける名前です（例：「研究用」「個人」）。60文字以内で日本語も使え、後から変更できます。
-- **データセットキー**：本体が基準パスの絶対パスから作る16桁の識別子です。IDは変更できますが、キーは同じ場所なら変わりません。
-- メモの本文・タグ・添付の登録情報もこのSQLiteに保存されます。貼り付けた画像の実体は `.TickTockTome/uploads/` に置かれます。
+- **ID**：利用者が付ける名前です（例：「研究用」「個人」）。60文字以内で日本語も使え、後から変更できます。どちらのアプリで作っても同じ `dataset.json` を使います。
+- **データセットキー**：基準パス（シンボリックリンクを解決した絶対パス）の SHA-256 の先頭16桁です。IDは変更できますが、キーは同じ場所なら変わりません。
+- `dataset.json`：`{"format": "kobito-tools-dataset", "schemaVersion": 1, "datasetId", "createdAt", "revision", "settings": {}, "legacyRoots": {}}`。`settings` は本体の共有設定で、PopNote! は読み書きしません。
+- どちらのアプリも、自分のフォルダが無ければ作ります。`.kobito-tools/` 自体が無いときは `.kobito-tools-creating-<uuid>/` で作ってから名前を変えます。
+- **1つのSQLiteを2つのアプリから書き込みません。** 本体は `Tomelet/`、PopNote! は `PopNote/` のDBだけに書き込みます。
 
 ### このPCだけに保存するもの
 
@@ -42,110 +50,68 @@ OS標準のローカル領域（macOS では `~/Library/Application Support/Tick
 | `setting.json` | 現在の基準パス、これまで開いた基準パスの一覧、ポート、PCの識別子、ローカルLLMの場所 |
 | `integrations.json` | 連携アプリのトークン（PopNote! の `memo:read`・`memo:write` など） |
 
-**連携トークンはPCごとに1つで、基準パスを切り替えても変わりません。** PopNote! 側でトークンを再取得する必要はありません。
+## 3. 開く・切り替える
 
-## 3. 切り替えの考え方
+- Tomelet のサーバーは、**同時に1つのデータセットだけ**を開きます。切替はサーバーを再起動せずに行います。
+- フォルダを選ぶと、`.kobito-tools/dataset.json`（または旧 `.TickTockTome/`）があれば保存されたIDで「『ID』に切り替えますか？」と確認し、無ければIDを付けて作ります。PopNote! だけが作ったデータセットでも、本体はIDを引き継いで `Tomelet/` を作ります。
+- **排他ロック**：開いている間は各アプリのフォルダの `lock.json` に使用中の印を置きます（30秒ごとに更新し、2分更新が無ければ期限切れ）。本体とPopNote! は別々のフォルダに印を置くので、互いに引き継ぐ必要はありません。
+- 本体が基準パスを開いていないとき（未設定・見つからない・別のPCが使用中）は、すべての `/api/` がHTTP 503（`setupRequired: true`）を返します。
 
-- Tomelet のサーバーは、**同時に1つのデータセットだけ**を開きます。
-- 利用者は、本体画面の右上（IDのボタン）または「設定 → 基準パス」から切り替えます。
-  - フォルダを選ぶと、そこに `.TickTockTome/` があれば、保存されたIDを使って「『ID』に切り替えますか？」と確認します。無ければIDを付けて新しく作ります。
-  - これまで開いた基準パスは一覧に残り、一覧から選んで切り替えられます。
-- **サーバーの再起動はしません。** 切り替えた瞬間から、すべてのAPI（連携APIを含む）が新しいデータセットを読み書きします。
-- **排他ロック**：開いている間は `.TickTockTome/lock.json` に使用中の印を置きます（30秒ごとに更新し、2分更新が無ければ期限切れ）。別のPCが使用中のデータセットは、利用者が確認した場合だけ強制的に開けます。強制的に開かれた側は、次の更新時にデータセットを閉じます。
+## 4. 共有タグ（`Tags/tags.json`）
 
-### 開いているデータセットが無い状態（設定待ち）
-
-次の場合、サーバーはDBを開かずに起動します。
-
-- 基準パスがまだ設定されていない
-- 基準パスが見つからない（同期フォルダが未接続など）
-- 別のPCが使用中
-
-この状態では、**すべての `/api/` がHTTP 503** を返します。
+正本は `tags.json` で、各アプリのDBの `tags`・`tag_categories` 表はその写しです（メモや日記との関連付けに外部キーを使うため）。
 
 ```json
-{ "error": "基準パスを設定してください。", "setupRequired": true }
+{ "format": "kobito-tags", "schemaVersion": 1, "revision": 12, "updatedAt": "…",
+  "categories": [{ "id", "name", "description", "displayOrder", "revision", "deletedAt" }],
+  "tags": [{ "id", "categoryId", "name", "description", "displayOrder", "revision", "archivedAt", "deletedAt" }] }
 ```
 
-連携アプリはこの応答を受けたら、「Tomelet で基準パスを設定してください」と案内し、書きかけのメモは連携アプリ側で保持してください。
+同期の規則（本体 `scripts/tag-store.js`、PopNote! `Sources/TagStore.swift` で同じ）：
 
-## 4. 現在のメモ連携APIへの影響（実装済み）
+1. `tags.json` とDBの写しを読み、IDごとに `revision` の大きい方を採ります。同じ `revision` で内容が違う場合は、キーを並べた内容の文字列が大きい方を採ります（どちらのアプリでも同じ結果になるため）。
+2. 同じ名前が2つあれば、IDの順で後になる方の名前に ` (IDの末尾4文字)` を付け、`revision` を1上げます。
+3. 分類が見つからないタグは「その他」（`other`）へ入れます。
+4. 結果をDBへ反映します（名前の入れ替えで一意制約に触れないよう、先に仮の名前へ退避）。
+5. `tags.json` と違えば、書く直前にもう一度読み、`revision` が変わっていなければ `revision + 1` で一時ファイルから置き換えます。変わっていれば1からやり直します。
 
-パスはすべて `/api/v1/integrations/memo/` からの相対です。認証方式（`Authorization: Bearer <token>`）と権限は変わりません。
+- タグを**完全削除することはありません**（アーカイブのみ）。片方のDBに参照先のない関連が残らないようにするためです。
+- タグを作る・変えるときは、直前に同期してから変更し、変更後すぐに同期します。
 
-| API | 変更点 |
+## 5. PopNote! のメモ
+
+### 保存（PopNote!）
+
+- PopNote! は保存先フォルダ（基準パス）を自分で選び、`.kobito-tools/PopNote/` の自分のDBへ**直接**保存します。本体の起動状態には左右されません。
+- 新しいDBは、本体の `migrations/*.sql` の写し（PopNote! の `schema/`）をファイル名順に適用して作ります。PRAGMAは本体と同じ（`foreign_keys=ON`・`journal_mode=DELETE`・`synchronous=FULL`・`busy_timeout=5000`）です。
+- 別のPCの PopNote! の印が有効な間は書き込まず、「『PC名』で使用中です」と案内します。
+
+### 表示（本体）
+
+- 本体は起動時に `PopNote/database/popnote.sqlite3` を見つけると、まだ決めていなければ「PopNote!のデータが確認されました。本アプリ上でも表示しますか？」と尋ねます。答えは `dataset.json` の `settings.showPopNoteMemos`（`true`・`false`、未回答は無し）に保存します。
+- 表示する場合、本体はPopNote! のDBを**読み取り専用**で開き、削除されていないメモとその関連（タグ・添付ファイルの登録・貼り付け画像）を自分のDBの `memos` 表へ写します。DBの更新日時・大きさが変わったときだけ写し直します。本体からメモは編集しません。
+- 貼り付け画像は `PopNote/uploads/` に置いたまま、本体の `/api/v1/uploads/<id>/content` から配信します。
+
+### 連携API（本体）
+
+| API | 内容 |
 |---|---|
-| `GET context` | `fileRoots` は `[{ "id": "base", "displayName": "基準パス", "available": true }]` になりました。基準パスの外を指す旧参照が残っている場合だけ、旧IDの項目（`available: false`）が追加されます |
-| `POST files:pick` | 「ファイル」用フォルダではなく、**基準パスの中**から選ぶ画面を開きます。登録されるファイルは `rootId: "base"` です |
-| `POST uploads` | 画像の実体は、開いているデータセットの `.TickTockTome/uploads/` に保存されます |
-| その他の読み書き | Tomelet が**今開いているデータセット**に対して行われます |
-| すべて | データセットが開かれていなければ 503（`setupRequired: true`） |
-
-> **注意**：`X-TickTockTome-Dataset` を付けない書き込みは「本体がその瞬間に開いているデータセット」へ入ります。PopNote! は必ずこのヘッダーを付けます（5章）。
-
----
-
-## 5. PopNote! の保存先（実装済み）
-
-### 基本方針
-
-- PopNote! は**保存先フォルダを自分で選びます**。本体の基準パスを切り替えることはありません。
-- 保存先には、本体と同じデータセット形式（`.TickTockTome/`）で保存します。無ければ PopNote! がIDを付けて作ります。後からそのフォルダを本体の基準パスにすると、そのまま取り込まれます。
-- **同じSQLiteを2つのアプリから同時に書き込まない**ため、保存先ごとに次のどちらかで保存します。
-
-| 状況 | 保存のしかた |
-|---|---|
-| 本体が起動していて、保存先と同じ基準パスを開いている | 本体の連携API経由。書き込みに `X-TickTockTome-Dataset: <保存先のキー>` を付ける |
-| それ以外（本体が無い・閉じている・別の基準パスを開いている） | PopNote! が保存先の `.TickTockTome/database/` を直接読み書きし、`lock.json` に使用中の印を置く |
-
-PopNote! は本体のサーバーを起動・停止しません。本体の起動状態と開いている基準パスは、保存のたびに（数秒の間は結果を使い回して）確かめます。
-
-### 5.1 データセットの作り方と形式
-
-- `dataset.json`：`{"format": "ticktocktome-dataset", "schemaVersion": 1, "datasetId", "createdAt", "revision": 1, "settings": {}, "legacyRoots": {}}`
-- 作成は `.TickTockTome-creating-<uuid>/` で行い、完成してから `.TickTockTome/` へ名前を変えます（`dataset.js` の `stageDataset` と同じ）。
-- 新しいDBは、本体の `migrations/*.sql` の写し（PopNote! の `schema/`）をファイル名順に適用し、`schema_migrations` に記録します。PRAGMAは本体と同じ（`foreign_keys=ON`・`journal_mode=DELETE`・`synchronous=FULL`・`busy_timeout=5000`）です。
-- 既存のDBは PopNote! が更新しません。`015_memos.sql` が適用されていない古いDBなら、本体で一度開くよう案内します。
-- データセットキーは本体と同じく、基準パス（シンボリックリンクを解決した絶対パス）の SHA-256 の先頭16桁です。
-
-### 5.2 使用中の印（lock.json）の引き継ぎ
-
-PopNote! が直接保存している間は、本体と同じ形式に `app: "popnote"` を加えた印を置き、30秒ごとに更新します。
-
-```json
-{ "app": "popnote", "machineId": "popnote-…", "hostname": "…", "pid": 1234, "startedAt": "…", "heartbeatAt": "…" }
-```
-
-- **本体側**：`lockIsActive()` は、同じPC（`hostname` が一致）の `app: "popnote"` の印を使用中とみなしません。本体はそのままデータセットを開き、自分の印で上書きします。
-- **PopNote! 側**：保存の前と定期更新のときに印を確かめ、自分の印でなくなっていれば本体が開いたと判断して、次の保存から連携API経由に切り替えます。本体が閉じると（本体は閉じるときに印を外す）、PopNote! がまた印を置いて直接保存します。
-- 別のPCの印（本体・PopNote! とも）が有効な間は、PopNote! は書き込まず「『PC名』で使用中です」と案内します。
-
-### 5.3 本体側の連携API（実装済み）
-
-| 追加・変更 | 内容 |
-|---|---|
-| `GET context` | `dataset: {id, key, basePath}` を返す。PopNote! は保存先と本体の基準パスが同じかをキーで判定し、保存先の候補として `basePath` を示す（トークンを持つ連携アプリだけに返す） |
-| `X-TickTockTome-Dataset` | 開いているデータセットと違えば409 `{"code": "dataset-mismatch", "current": {"id", "key"}}`。PopNote! は直接保存へ切り替えて再試行する |
-| `GET memos?from=&to=` | 作成日時の範囲（ISO形式のUTC）で絞り込む。PopNote! のカレンダーが1か月分を取り出すのに使う |
-| `POST files:reference` | `{"relativePath"}` のファイルを登録する。PopNote! は自分のファイル選択画面で保存先フォルダ内のファイルを選ぶ |
-| `companion-connect.js --no-launch` | サーバーを起動せずに、ポートと専用トークンだけを返す |
+| `GET /api/v1/integrations/memo/context` | `dataset: {id, key, basePath}`。本体が今開いている基準パスで、PopNote! が保存先の候補として示す |
+| その他の `/api/v1/integrations/memo/…` | 410 `{"code": "popnote-update-required"}`（本体経由でメモを書き込んでいた古い PopNote! 向け） |
+| `companion-connect.js popnote --no-launch` | サーバーを起動せずに、ポートと専用トークンだけを返す |
 | 「✎」・カレンダーのメモ | `popnote://open/<メモID>?dataset=<キー>` で開く。PopNote! は保存先が違えば、そのキーの保存先へ切り替えてから開く |
 
-### 5.4 PopNote! の画面
+## 6. 旧形式 `.TickTockTome/` からの移行
 
-- 画面左上の「📁」で保存先を切り替えます。一覧には、使ったことのある保存先と、本体が今開いている基準パスが出ます。
-- 保存先を選ぶ前に書き始めても、内容は画面に残り、選んだ時点でその保存先へ保存します（APIは428 `destinationRequired` を返す）。
-- 保存先を切り替えると、タグはその保存先のものに変わります。
+以前は本体とPopNote! が `.TickTockTome/database/ticktocktome.sqlite3` を共有していました。本体は `.kobito-tools/` が無く `.TickTockTome/` だけがある基準パスを開くとき、次のように分割移行します（`dataset.js` の `migrateLegacyLayout`、手動なら `node tools/migrate-kobito-tools.js <基準パス>`）。
 
-## 6. 対応状況
+1. 旧 `lock.json` が有効なら（別のPC、または同じPCで動いている本体・PopNote!）移行しません。
+2. 旧DBの整合性を確かめた複製を `Tomelet/` に作り、`uploads/`・`backups/` なども複製します。
+3. メモがあれば、`PopNote/database/popnote.sqlite3` を新しく作り、メモ・メモのタグ・添付ファイルの登録・貼り付け画像を写します。本体側の複製からはメモを消します。
+4. タグと分類を `Tags/tags.json` へ書き出します。
+5. すべて一時フォルダで用意してから `.kobito-tools/` へ名前を変え、旧フォルダは `.TickTockTome.migrated/` として残します。
 
-- [x] `rootId` は `"base"` だけを扱う
-- [x] 本体が基準パスを開いていない（503）場合は、PopNote! が直接保存する
-- [x] `GET context` の `dataset`、`X-TickTockTome-Dataset` と409 `dataset-mismatch`
-- [x] 同じPCの PopNote! の印を本体が引き継ぐ（`lockIsActive`）
-- [x] `GET memos` の期間指定、`POST files:reference`、`companion-connect.js --no-launch`
-- [x] 「✎」・カレンダーからのURLにデータセットキーを付ける
-- 本体の基準パスを PopNote! から切り替える機能（旧提案の `dataset:switch`）は作りません。PopNote! は保存先を自分で選ぶためです。
+PopNote! は旧形式を自分では移行せず、Tomelet で基準パスを一度開くよう案内します。
 
 ---
 
@@ -154,7 +120,7 @@ PopNote! が直接保存している間は、本体と同じ形式に `app: "pop
 | 用語 | 意味 |
 |---|---|
 | 基準パス | 利用者が選んだ1つのフォルダ。すべてのファイル参照の起点 |
-| データセット | 基準パスと、その直下の `.TickTockTome/` に保存されたデータのまとまり |
+| データセット | 基準パスと、その直下の `.kobito-tools/` に保存されたデータのまとまり |
 | ID | データセットに利用者が付けた名前。変更できる |
-| データセットキー | 基準パスの場所から本体が作る識別子。IDを変えても変わらない |
-| 設定待ち | 開いているデータセットが無く、APIが503を返す状態 |
+| データセットキー | 基準パスの場所から作る識別子。IDを変えても変わらない |
+| 設定待ち | 本体が開いているデータセットが無く、APIが503を返す状態 |

@@ -29,4 +29,5 @@ coverage/
 .test-output/
 
 # Base-path dataset folder (created inside the user's chosen base path, never in this repository)
+.kobito-tools/
 .TickTockTome/

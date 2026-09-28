@@ -330,7 +330,7 @@ function helpView() {
     ${guide("07", "/assets/help-files.svg", "関連ファイルをまとめて探す", "Todoや時間割へ添付したファイルは、自動的にファイル画面の管理対象になります。", ["ファイル名だけでなく、関連するTodo・アクションの名前やタグでも検索できます。", "検索結果から関連アクションを選ぶと、その編集画面が開きます。", "一覧表示時はファイル本体を読まないため、登録数が増えても不要な待ち時間を抑えます。"])}
     ${guide("08", "/assets/help-library.svg", "本と文書を本棚のように整理", "書籍・文書は、基準パスからの相対パスだけを登録します。", ["Todo・時間割の編集画面でも、資料の検索・タグ絞り込み・新規追加ができます。", "追加直後は赤い印の「未確認」になり、書誌情報を確認してから状態を変更します。", "ローカルLLMは初期状態では無効です。設定画面の手順を完了した場合だけPDFから書誌情報の候補を抽出します。"])}
     ${guide("09", "/assets/help-file-roots.svg", "基準パスは1か所だけ", "書籍・文書・ファイルは、すべて1つの基準パスからの相対パスで管理します。", ["DBに保存するのは基準パスからの相対パスであり、PDFや一般ファイル本体ではありません。", "基準パスの外や、外部へ出るシンボリックリンクは拒否します。", "基準パスごとフォルダを移動・同期しても、同じ相対パスで参照し続けられます。"])}
-    ${guide("10", "/assets/help-storage.svg", "基準パスは1つのデータセット", "基準パス直下の隠しフォルダ「.TickTockTome」に、IDと主要データをまとめて保存します。", ["データセット：ID、配色・フォント・タグ表示の設定、SQLite、表紙画像、添付、バックアップ。", "このPCだけの設定：現在の基準パス、ポート、連携トークン、ローカルLLMの実行ファイルの場所。", "開いている間は使用中の印を置き、別のPCで同じ基準パスを同時に開かないようにします。"])}</div>`;
+    ${guide("10", "/assets/help-storage.svg", "基準パスは1つのデータセット", "基準パス直下の隠しフォルダ「.kobito-tools」に、IDと主要データをまとめて保存します。", ["データセット：ID、配色・フォント・タグ表示の設定、SQLite、表紙画像、添付、バックアップ。", "このPCだけの設定：現在の基準パス、ポート、連携トークン、ローカルLLMの実行ファイルの場所。", "開いている間は使用中の印を置き、別のPCで同じ基準パスを同時に開かないようにします。"])}</div>`;
 }
 
 function tagVisibilityPanel() {
@@ -557,8 +557,8 @@ app.addEventListener("click", async (event) => {
     else if (target.dataset.themePreset) { const preset = themePresets[target.dataset.themePreset]; document.querySelector('[name="background"]').value = preset.background; document.querySelector('[name="surface"]').value = preset.surface; document.querySelector('[name="accent"]').value = preset.accent; document.querySelector('[name="text"]').value = preset.text; const manual = document.querySelector('[name="themeMode"][value="manual"]'); if (manual) { manual.checked = true; manual.closest("[data-theme-form]").dataset.themeMode = "manual"; } }
     else if (target.hasAttribute("data-tag-panel")) { state.tagPanelOpen = !state.tagPanelOpen; render(); }
     else if (target.dataset.openRoot) { await api.openPath(target.dataset.openRoot, target.dataset.openPath); notice("OSの標準アプリで開きました。"); }
-    else if (target.dataset.restore) { const type = target.dataset.trashType, label = { library: "資料", memo: "メモ" }[type] || "日記"; await ({ library: api.restoreLibrary, memo: api.restoreMemo }[type] || api.restore)(target.dataset.restore, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を復元しました。`); }
-    else if (target.dataset.purge) { if (!(await window.TickTockTomeDialog.confirm("完全削除すると元に戻せません。削除しますか？", { okLabel: "完全削除", danger: true }))) return; const type = target.dataset.trashType, label = { library: "資料", memo: "メモ" }[type] || "日記"; await ({ library: api.purgeLibrary, memo: api.purgeMemo }[type] || api.purge)(target.dataset.purge, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を完全削除しました。`); }
+    else if (target.dataset.restore) { const type = target.dataset.trashType, label = { library: "資料" }[type] || "日記"; await ({ library: api.restoreLibrary }[type] || api.restore)(target.dataset.restore, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を復元しました。`); }
+    else if (target.dataset.purge) { if (!(await window.TickTockTomeDialog.confirm("完全削除すると元に戻せません。削除しますか？", { okLabel: "完全削除", danger: true }))) return; const type = target.dataset.trashType, label = { library: "資料" }[type] || "日記"; await ({ library: api.purgeLibrary }[type] || api.purge)(target.dataset.purge, Number(target.dataset.revision)); await initialize("settings"); notice(`${label}を完全削除しました。`); }
   } catch (error) { notice(error.message); }
 });
 
@@ -813,6 +813,7 @@ async function initialize(view = "dashboard") {
   if (view === "settings") state.trash = (await api.trash()).items;
   state.view = view;
   render();
+  window.TickTockTomeDataset.askPopNoteMemos(state.bootstrap);
   if(state.bootstrap.localLlm?.enabled&&state.bootstrap.localLlm.analysisMode==='auto'&&!window.__tickTockTomeAutoAnalysisStarted){window.__tickTockTomeAutoAnalysisStarted=true;setTimeout(()=>api.autoDailyAnalysis().catch(()=>{}),1200);}
 }
 

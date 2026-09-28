@@ -10,16 +10,17 @@ const { openDatabase } = require("./database/connection.js");
 const { createVerifiedBackup } = require("./database/backup.js");
 const { SqliteRepository } = require("./repositories/sqlite-repository.js");
 const { JournalService, safeRelativePath } = require("./services/journal-service.js");
-const { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updateTagVisibility, updateTheme } = require("./services/settings-service.js");
+const { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updatePopNoteMemos, updateTagVisibility, updateTheme } = require("./services/settings-service.js");
 const { analyzeDailyActivity, extractLibraryMetadata } = require("./services/local-llm-service.js");
 const { validDate, validateDailyAction } = require("./services/daily-action-service.js");
 const { validateLibraryItem } = require("./services/library-service.js");
-const { validateMemo } = require("./services/memo-service.js");
 const { companionClient, companions } = require("./integrations/companions.js");
 const { authorizeIntegration } = require("./security/integration-auth.js");
 const { resolveAllowedTarget } = require("./security/file-paths.js");
 const { DATASET_DIRECTORY_NAME, loadSettings, machineRecord, normalizeSharedSettings, pathsFor, writeJsonAtomic } = require("./settings.js");
 const dataset = require("./dataset.js");
+const { syncTags, tagsFileStamp } = require("./tag-store.js");
+const popnoteMemos = require("./popnote-memos.js");
 
 const projectRoot = path.resolve(__dirname, "..");
 const machinePaths = pathsFor();
@@ -34,6 +35,8 @@ let journals = null;
 let datasetState = { status: settings.basePath ? "missing" : "unset", message: "", lockHolder: null };
 let stopHeartbeat = null;
 let currentDataset = null;
+// 共有タグ（Tags/tags.json）とPopNote!のDBを前回取り込んだときの目印。変わっていれば取り込み直す。
+let sharedStamps = { tags: null, popnote: null };
 const pendingBaseSelections = new Map();
 
 function persistSettings(scope, next) {
@@ -73,21 +76,25 @@ function closeDataset() {
   if (database) { try { database.close(); } catch { /* 既に閉じている */ } }
   if (settings.basePath && currentDataset) { try { dataset.releaseLock(settings.basePath, settings.machineId); } catch { /* 基準パスが外れている */ } }
   database = null; repository = null; journals = null; currentDataset = null;
+  sharedStamps = { tags: null, popnote: null };
   runtimePaths = machinePaths;
   settings.fileRoots = [];
 }
 
 // 基準パスのデータセットを開き、このPCの現在の基準パスとして記録する。
 function openDataset(basePath, { force = false } = {}) {
-  const loaded = dataset.readDataset(basePath);
+  let loaded = dataset.readDataset(basePath);
   if (!loaded) throw Object.assign(new Error("基準パスにTomeletのデータが見つかりません。"), { statusCode: 404 });
   if (currentDataset && settings.basePath === basePath) return;
+  // 旧形式（.TickTockTome/）なら、開く前に .kobito-tools/ へ分割移行する。
+  if (loaded.legacyLayout) { dataset.migrateLegacyLayout(basePath, { projectRoot }); loaded = dataset.readDataset(basePath); }
+  // PopNote!だけが作ったデータセットには Tomelet/ がまだ無いため、ロックを置く前に作る。
+  dataset.ensureDatasetDirectories(basePath);
   // 切替先のロックを先に確保し、取れなかった場合は現在のデータセットを開いたままにする。
   const lock = dataset.acquireLock(basePath, settings.machineId, { force });
   if (currentDataset) closeDataset();
   let opened;
   try {
-    dataset.ensureDatasetDirectories(basePath);
     const paths = dataset.datasetPaths(machinePaths.dataDirectory, basePath);
     opened = openDatabase(paths.databasePath, projectRoot, paths.backupDirectory);
     runtimePaths = paths;
@@ -107,6 +114,32 @@ function openDataset(basePath, { force = false } = {}) {
     datasetState = { status: "locked", message: "別の場所でこのデータが開かれたため、こちらでは閉じました。", lockHolder: holder };
   });
   dataset.applyFolderIcon(basePath, projectRoot);
+  refreshSharedData();
+}
+
+// 共有タグとPopNote!のメモを取り込む。失敗しても（同期フォルダが一時的に読めないなど）本体の動作は止めない。
+function refreshSharedData({ force = false } = {}) {
+  if (!repository || !settings.basePath) return;
+  const tagsStamp = tagsFileStamp(settings.basePath);
+  if (force || tagsStamp !== sharedStamps.tags) {
+    try { syncTags(database, settings.basePath); sharedStamps.tags = tagsFileStamp(settings.basePath); } catch (error) { console.error(`共有タグを同期できません: ${error.message}`); }
+  }
+  const popnoteStamp = settings.showPopNoteMemos === true ? popnoteMemos.popnoteStamp(settings.basePath) : "hidden";
+  if (!force && popnoteStamp === sharedStamps.popnote) return;
+  try {
+    if (popnoteStamp === "hidden" || popnoteStamp === "missing") popnoteMemos.clearMemoMirror(database);
+    else popnoteMemos.mirrorPopNoteMemos(database, settings.basePath);
+    sharedStamps.popnote = popnoteStamp;
+  } catch (error) { console.error(`PopNote!のメモを読み込めません: ${error.message}`); }
+}
+
+// タグを変更するときは、直前に他のアプリの変更を取り込み、変更後すぐに共有タグへ書き出す。
+function withSharedTags(change) {
+  syncTags(database, settings.basePath);
+  const result = change();
+  syncTags(database, settings.basePath);
+  sharedStamps.tags = tagsFileStamp(settings.basePath);
+  return result;
 }
 
 function openConfiguredDataset() {
@@ -360,6 +393,10 @@ function datasetSummary() {
   return { id: settings.datasetId, basePath: settings.basePath, directoryName: DATASET_DIRECTORY_NAME, unresolved: dataset.unresolvedReferences(database), legacyAvailable: legacyAvailable() };
 }
 
+function popnoteSummary() {
+  return { detected: popnoteMemos.popnoteDetected(settings.basePath), show: settings.showPopNoteMemos };
+}
+
 function legacyAvailable() {
   if (!settings.legacy || settings.legacy.migratedAt) return false;
   return existsSync(pathsFor(machinePaths.dataDirectory, settings.legacy.contentDirectory || machinePaths.dataDirectory).databasePath);
@@ -512,7 +549,8 @@ async function handle(request, response) {
   if (request.method === "POST" && pathname === "/api/v1/dataset:forget") { requireUiOrigin(request); const body = await readJsonBody(request); requireRevision(body); const entry = knownDatasetByKey(body.key); if (currentDataset && entry.basePath === settings.basePath) throw new Error("開いている基準パスは一覧から外せません。"); settings.knownDatasets = settings.knownDatasets.filter((item) => item !== entry); persistSettings("machine", { ...settings, revision: ++settings.revision }); return sendJson(response, 200, { revision: settings.revision }); }
   if (request.method === "POST" && pathname === "/api/v1/dataset:apply") { requireUiOrigin(request); return sendJson(response, 200, await applyBasePath(await readJsonBody(request))); }
   if (!repository && pathname.startsWith("/api/")) return sendJson(response, 503, { error: "基準パスを設定してください。", setupRequired: true });
-  if (request.method === "GET" && pathname === "/api/v1/bootstrap") return sendJson(response, 200, { dashboard: repository.dashboard(), tagCategories: repository.listTagCategories(), tags: repository.listTags(), archivedTags: repository.listTags(true).filter(tag=>tag.archivedAt), authorSuggestions: repository.listLibraryAuthors(), fileRoots: publicFileRoots(), theme: settings.theme, themeMode: settings.themeMode, batteryColors: settings.batteryColors, fontPreset: settings.fontPreset, localLlm: settings.localLlm, hiddenTagIds: settings.hiddenTagIds, language: settings.language, illumination: settings.illumination, characterSpeed: settings.characterSpeed, dataset: datasetSummary(), knownDatasets: publicKnownDatasets(), settingsRevision: settings.revision, platform: process.platform, memoApp: { installed: Boolean(memoCompanion()), name: "PopNote!" } });
+  if (request.method === "GET" && pathname.startsWith("/api/")) refreshSharedData();
+  if (request.method === "GET" && pathname === "/api/v1/bootstrap") return sendJson(response, 200, { dashboard: repository.dashboard(), tagCategories: repository.listTagCategories(), tags: repository.listTags(), archivedTags: repository.listTags(true).filter(tag=>tag.archivedAt), authorSuggestions: repository.listLibraryAuthors(), fileRoots: publicFileRoots(), theme: settings.theme, themeMode: settings.themeMode, batteryColors: settings.batteryColors, fontPreset: settings.fontPreset, localLlm: settings.localLlm, hiddenTagIds: settings.hiddenTagIds, language: settings.language, illumination: settings.illumination, characterSpeed: settings.characterSpeed, dataset: datasetSummary(), knownDatasets: publicKnownDatasets(), settingsRevision: settings.revision, platform: process.platform, memoApp: { installed: Boolean(memoCompanion()), name: "PopNote!" }, popnote: popnoteSummary() });
   if (request.method === "GET" && pathname === "/api/v1/journals") return sendJson(response, 200, { items: repository.listJournals({ query: url.searchParams.get("q") || "", tagId: url.searchParams.get("tag") || "", limit: Number(url.searchParams.get("limit")) || 100, offset: Number(url.searchParams.get("offset")) || 0 }) });
   if (request.method === "GET" && pathname.startsWith("/api/v1/journals/by-date/")) return sendJson(response, 200, { item: repository.journalByDate(pathname.slice(25)) });
   if (request.method === "GET" && /^\/api\/v1\/journals\/[^/]+$/.test(pathname)) return sendJson(response, 200, { item: repository.journalById(pathname.split("/").at(-1)) });
@@ -520,18 +558,21 @@ async function handle(request, response) {
   if (request.method === "POST" && pathname === "/api/v1/tags") {
     requireUiOrigin(request); const body = await readJsonBody(request);
     if (!/^[A-Za-z0-9_-]+$/.test(body?.id || "")) throw new Error("タグの内部IDを確認してください。");
-    return sendJson(response, 201, { item: repository.createTag({ id: body.id, ...validateTagFields(body) }) });
+    const input = { id: body.id, ...validateTagFields(body) };
+    return sendJson(response, 201, { item: withSharedTags(() => repository.createTag(input)) });
   }
-  if (request.method === "PUT" && /^\/api\/v1\/tags\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); return sendJson(response, 200, { item: repository.updateTag(id, validateTagFields(await readJsonBody(request), true)) }); }
-  if (request.method === "POST" && /^\/api\/v1\/tags\/[^/]+\/(archive|restore)$/.test(pathname)) { requireUiOrigin(request); const parts=pathname.split("/"),body=await readJsonBody(request); return sendJson(response,200,{item:repository.setTagArchived(parts[4],parts[5]==="archive",body.revision)}); }
-  if (request.method === "POST" && pathname === "/api/v1/tag-categories") { requireUiOrigin(request); const body = await readJsonBody(request); if (!/^[A-Za-z0-9_-]+$/.test(body?.id || "")) throw new Error("分類の内部IDを確認してください。"); return sendJson(response, 201, { item: repository.createTagCategory({ id: body.id, ...validateCategoryFields(body) }) }); }
-  if (request.method === "PUT" && /^\/api\/v1\/tag-categories\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1); return sendJson(response, 200, { item: repository.updateTagCategory(id, validateCategoryFields(await readJsonBody(request), true)) }); }
+  if (request.method === "PUT" && /^\/api\/v1\/tags\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1), input = validateTagFields(await readJsonBody(request), true); return sendJson(response, 200, { item: withSharedTags(() => repository.updateTag(id, input)) }); }
+  if (request.method === "POST" && /^\/api\/v1\/tags\/[^/]+\/(archive|restore)$/.test(pathname)) { requireUiOrigin(request); const parts=pathname.split("/"),body=await readJsonBody(request); return sendJson(response,200,{item:withSharedTags(()=>repository.setTagArchived(parts[4],parts[5]==="archive",body.revision))}); }
+  if (request.method === "POST" && pathname === "/api/v1/tag-categories") { requireUiOrigin(request); const body = await readJsonBody(request); if (!/^[A-Za-z0-9_-]+$/.test(body?.id || "")) throw new Error("分類の内部IDを確認してください。"); const input = { id: body.id, ...validateCategoryFields(body) }; return sendJson(response, 201, { item: withSharedTags(() => repository.createTagCategory(input)) }); }
+  if (request.method === "PUT" && /^\/api\/v1\/tag-categories\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const id = pathname.split("/").at(-1), input = validateCategoryFields(await readJsonBody(request), true); return sendJson(response, 200, { item: withSharedTags(() => repository.updateTagCategory(id, input)) }); }
   if (request.method === "POST" && pathname === "/api/v1/uploads") { requireUiOrigin(request); return sendJson(response, 201, { item: await saveManagedUpload(await readJsonBody(request, 35 * 1024 * 1024)) }); }
   if (request.method === "GET" && /^\/api\/v1\/uploads\/[^/]+\/content$/.test(pathname)) {
     const item = repository.managedUploadById(pathname.split("/")[4]);
     if (!item) return sendJson(response, 404, { error: "ファイルが見つかりません。" });
     response.writeHead(200, { ...headers(item.mimeType), ...(item.mimeType === "application/pdf" ? { "Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'" } : {}), "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(item.originalName)}` });
-    response.end(await readFile(path.join(runtimePaths.uploadsDirectory, item.storedName))); return;
+    // PopNote!のメモに貼られた画像は、PopNote/uploads/に置かれている。
+    const local = path.join(runtimePaths.uploadsDirectory, item.storedName), popnoteCopy = path.join(popnoteMemos.popnoteUploadsDirectory(settings.basePath), item.storedName);
+    response.end(await readFile(existsSync(local) || path.basename(item.storedName) !== item.storedName ? local : popnoteCopy)); return;
   }
   if (request.method === "GET" && pathname === "/api/v1/files") return sendJson(response, 200, { items: repository.listFiles(Number(url.searchParams.get("limit")) || 500, Number(url.searchParams.get("offset")) || 0), total: repository.fileCount() });
   if (request.method === "POST" && pathname === "/api/v1/files:reference") { requireUiOrigin(request); const body=await readJsonBody(request); if(body.rootId!==dataset.BASE_ROOT_ID)throw new Error("基準パス内のファイルを選択してください。"); const target=resolveAllowedTarget(settings,body.rootId,body.relativePath); if(!statSync(target).isFile())throw new Error("ファイルを選択してください。"); return sendJson(response,201,{item:repository.createManagedFile(body.rootId,body.relativePath)}); }
@@ -588,8 +629,6 @@ async function handle(request, response) {
     }
     return sendJson(response,200,{on:Boolean(timerWindowProcess)});
   }
-  if (request.method === "POST" && /^\/api\/v1\/memo-trash\/[^/]+\/restore$/.test(pathname)) { requireUiOrigin(request); const body = await readJsonBody(request); return sendJson(response, 200, { item: repository.restoreMemo(pathname.split("/")[4], Number(body.revision)) }); }
-  if (request.method === "DELETE" && /^\/api\/v1\/memo-trash\/[^/]+$/.test(pathname)) { requireUiOrigin(request); const body = await readJsonBody(request); await createVerifiedBackup(runtimePaths.databasePath, runtimePaths.backupDirectory, "before-memo-purge"); repository.purgeMemo(pathname.split("/").at(-1), Number(body.revision)); return sendJson(response, 200, { ok: true }); }
   if (request.method === "POST" && pathname === "/api/v1/memo-window") {
     requireUiOrigin(request); const body = await readJsonBody(request);
     const memoId = body?.memoId == null || body.memoId === "" ? "" : String(body.memoId);
@@ -664,6 +703,7 @@ async function handle(request, response) {
   if (request.method === "PUT" && pathname === "/api/v1/settings/motion") { requireUiOrigin(request); return sendJson(response, 200, updateMotion(settings, persistSettings, await readJsonBody(request))); }
   if (request.method === "PUT" && pathname === "/api/v1/settings/font") { requireUiOrigin(request); return sendJson(response, 200, updateFontPreset(settings, persistSettings, await readJsonBody(request))); }
   if (request.method === "PUT" && pathname === "/api/v1/settings/local-llm") { requireUiOrigin(request); return sendJson(response, 200, updateLocalLlm(settings, persistSettings, await readJsonBody(request))); }
+  if (request.method === "PUT" && pathname === "/api/v1/settings/popnote-memos") { requireUiOrigin(request); const result = updatePopNoteMemos(settings, persistSettings, await readJsonBody(request)); refreshSharedData({ force: true }); return sendJson(response, 200, result); }
   if (request.method === "PUT" && pathname === "/api/v1/settings/tag-visibility") { requireUiOrigin(request); return sendJson(response, 200, updateTagVisibility(settings, persistSettings, await readJsonBody(request))); }
   if (request.method === "POST" && pathname === "/api/v1/integrations/activity-events:batch") { const client = authorizeIntegration(request, runtimePaths.integrationsPath, "activity:write"); if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" }); const body = await readJsonBody(request); return sendJson(response, 200, repository.upsertActivityBatch(validateSource(body, client), validateActivityEvents(body))); }
   if (request.method === "POST" && pathname === "/api/v1/integrations/file-index:batch") { const client = authorizeIntegration(request, runtimePaths.integrationsPath, "files:write"); if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" }); const body = await readJsonBody(request); return sendJson(response, 200, repository.upsertFileIndexBatch(validateSource(body, client), validateFileItems(body))); }
@@ -675,54 +715,18 @@ async function handle(request, response) {
     const existing = repository.journalByDate(input.entryDate);
     return sendJson(response, existing ? 200 : 201, { item: existing || repository.createJournal(input), alreadyExisted: Boolean(existing) });
   }
-  if (pathname.startsWith("/api/v1/integrations/memo/")) return handleMemoIntegration(request, response, url, pathname.slice("/api/v1/integrations/memo/".length));
+  if (pathname.startsWith("/api/v1/integrations/memo/")) return handleMemoIntegration(request, response, pathname.slice("/api/v1/integrations/memo/".length));
   return sendJson(response, 404, { error: "Not Found" });
 }
 
-// PopNote!向けのメモAPI。画面用APIと分け、アプリ別トークンのmemo:read / memo:write権限で保護する。
-async function handleMemoIntegration(request, response, url, route) {
+// PopNote!向けの連携API。メモはPopNote!が .kobito-tools/PopNote/ に自分で保存するため、
+// 本体が返すのは「今開いている基準パス」（PopNote!の保存先の候補）だけ。アプリ別トークンのmemo:read権限で保護する。
+async function handleMemoIntegration(request, response, route) {
   const client = authorizeIntegration(request, runtimePaths.integrationsPath, request.method === "GET" ? "memo:read" : "memo:write");
   if (!client) return sendJson(response, 401, { error: "連携認証に失敗しました。" });
-  // 連携アプリが想定しているデータセットと、本体が開いているデータセットが違う場合は読み書きしない。
-  const expectedKey = String(request.headers["x-ticktocktome-dataset"] || "");
-  const current = { id: settings.datasetId, key: datasetKey(settings.basePath) };
-  if (expectedKey && expectedKey !== current.key) return sendJson(response, 409, { error: "Tomeletで開いている基準パスが変わりました。", code: "dataset-mismatch", current });
-  const memoPath = /^memos\/(memo-[0-9a-f-]{36})$/.exec(route);
-  // PopNote!は保存先フォルダを自分で選ぶため、本体が開いている基準パスの場所も返す（トークンを持つ連携アプリだけ）。
-  if (request.method === "GET" && route === "context") return sendJson(response, 200, { dataset: { ...current, basePath: settings.basePath }, tagCategories: repository.listTagCategories(), tags: repository.listTags(), fileRoots: publicFileRoots().map(({ id, displayName, available }) => ({ id, displayName, available })) });
-  if (request.method === "GET" && route === "memos") {
-    const from = url.searchParams.get("from") || "", to = url.searchParams.get("to") || "";
-    if ((from && !validTimestamp(from)) || (to && !validTimestamp(to))) throw new Error("期間はISO形式の日時で指定してください。");
-    return sendJson(response, 200, { items: repository.listMemos({ query: url.searchParams.get("q") || "", limit: Number(url.searchParams.get("limit")) || 200, from, to }) });
-  }
-  if (request.method === "GET" && memoPath) { const item = repository.memoById(memoPath[1]); return item ? sendJson(response, 200, { item }) : sendJson(response, 404, { error: "メモが見つかりません。" }); }
-  if (request.method === "POST" && route === "memos") return sendJson(response, 201, { item: repository.createMemo(validateMemo(await readJsonBody(request))) });
-  if (request.method === "PUT" && memoPath) return sendJson(response, 200, { item: repository.updateMemo(memoPath[1], validateMemo(await readJsonBody(request), true)) });
-  if (request.method === "DELETE" && memoPath) { const body = await readJsonBody(request); repository.deleteMemo(memoPath[1], Number(body.revision)); return sendJson(response, 200, { ok: true }); }
-  if (request.method === "POST" && route === "tags") { const body = await readJsonBody(request); return sendJson(response, 201, { item: repository.findOrCreateTagByName(body?.name) }); }
-  if (request.method === "POST" && route === "uploads") {
-    const body = await readJsonBody(request, 35 * 1024 * 1024);
-    if (!String(body?.mimeType || "").startsWith("image/")) throw new Error("メモへ貼り付けられるのは画像だけです。");
-    return sendJson(response, 201, { item: await saveManagedUpload(body) });
-  }
-  if (request.method === "POST" && route === "files:pick") {
-    const relativePath = await pickRelativePath(dataset.BASE_ROOT_ID, "file");
-    if (!statSync(resolveAllowedTarget(settings, dataset.BASE_ROOT_ID, relativePath)).isFile()) throw new Error("ファイルを選択してください。");
-    return sendJson(response, 201, { item: repository.createManagedFile(dataset.BASE_ROOT_ID, relativePath) });
-  }
-  if (request.method === "POST" && route === "files:reference") {
-    const body = await readJsonBody(request);
-    if (!statSync(resolveAllowedTarget(settings, dataset.BASE_ROOT_ID, body?.relativePath)).isFile()) throw new Error("ファイルを選択してください。");
-    return sendJson(response, 201, { item: repository.createManagedFile(dataset.BASE_ROOT_ID, String(body.relativePath).replace(/\\/g, "/")) });
-  }
-  const openFile = /^files\/(managed-file-[0-9a-f-]{36}):open$/.exec(route);
-  if (request.method === "POST" && openFile) {
-    const file = repository.fileById(openFile[1]);
-    if (!file) return sendJson(response, 404, { error: "ファイルが見つかりません。" });
-    openTarget(resolveAllowedTarget(settings, file.rootId, file.relativePath)).unref();
-    return sendJson(response, 200, { ok: true });
-  }
-  return sendJson(response, 404, { error: "Not Found" });
+  if (request.method === "GET" && route === "context") return sendJson(response, 200, { dataset: { id: settings.datasetId, key: datasetKey(settings.basePath), basePath: settings.basePath } });
+  // 本体経由でメモを保存していた古いPopNote!には、更新を案内する（本体のDBへ書くと、表示用の写しとして消えてしまうため）。
+  return sendJson(response, 410, { error: "メモの保存方法が変わりました。PopNote!を最新版に更新してください。", code: "popnote-update-required" });
 }
 
 const server = createServer((request, response) => handle(request, response).catch((error) => {

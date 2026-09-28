@@ -8,8 +8,17 @@ const APP_DIRECTORY_NAME = "TickTockTome";
 // 旧名DailyLogで作られた個人データ領域・DBは、新しい名前のものが無い限りそのまま使う（データは移動しない）。
 const LEGACY_DIRECTORY_NAME = "DailyLog";
 const DATABASE_FILE_NAME = "ticktocktome.sqlite3";
-// 基準パス直下に作るアプリ専用データフォルダ。利用者のフォルダ名と重ならない隠しフォルダにする。
-const DATASET_DIRECTORY_NAME = ".TickTockTome";
+// 基準パス直下に作る、こびとツール（Tomelet・PopNote!）共通の隠しフォルダ。
+//   .kobito-tools/dataset.json  データセットのID（両アプリ共通）と本体の共有設定
+//   .kobito-tools/Tomelet/      本体のDB・アップロード・バックアップ
+//   .kobito-tools/PopNote/      PopNote!のメモ
+//   .kobito-tools/Tags/         両アプリで共有するタグ
+const DATASET_DIRECTORY_NAME = ".kobito-tools";
+const APP_DATA_DIRECTORY_NAME = "Tomelet";
+const POPNOTE_DIRECTORY_NAME = "PopNote";
+const TAGS_DIRECTORY_NAME = "Tags";
+// 以前の保存先。開いたときに .kobito-tools へ分割移行する。
+const LEGACY_DATASET_DIRECTORY_NAME = ".TickTockTome";
 const LEGACY_DATABASE_FILE_NAME = "dailylog.sqlite3";
 // HOMEは白、設定・使い方は無彩色、Todo〜文書はナビの並び順に虹色（赤→紫）。
 const DEFAULT_BATTERY_COLORS = Object.freeze({
@@ -98,7 +107,9 @@ function normalizeSharedSettings(saved = {}) {
   const fontPreset = FONT_PRESETS.includes(saved.fontPreset) ? saved.fontPreset : "classic";
   const illumination = saved.illumination !== false;
   const characterSpeed = CHARACTER_SPEEDS.includes(saved.characterSpeed) ? saved.characterSpeed : 150;
-  return { theme, themeMode, batteryColors, fontPreset, hiddenTagIds, illumination, characterSpeed };
+  // PopNote!のメモを本体にも表示するか。null は未回答（PopNote!のデータが見つかったときに尋ねる）。
+  const showPopNoteMemos = typeof saved.showPopNoteMemos === "boolean" ? saved.showPopNoteMemos : null;
+  return { theme, themeMode, batteryColors, fontPreset, hiddenTagIds, illumination, characterSpeed, showPopNoteMemos };
 }
 
 function normalizeLocalLlm(saved) {
@@ -145,8 +156,25 @@ function machineRecord(settings) {
   return { schemaVersion: 2, revision: settings.revision, port: settings.port, machineId: settings.machineId, basePath: settings.basePath, knownDatasets: settings.knownDatasets || [], language: settings.language === "en" ? "en" : "ja", localLlm: settings.localLlm, ...(settings.legacy ? { legacy: settings.legacy } : {}) };
 }
 
-function datasetDirectoryFor(basePath) {
+function kobitoDirectoryFor(basePath) {
   return path.join(basePath, DATASET_DIRECTORY_NAME);
+}
+
+// 本体のデータ（DB・アップロードなど）を置くフォルダ。
+function datasetDirectoryFor(basePath) {
+  return path.join(kobitoDirectoryFor(basePath), APP_DATA_DIRECTORY_NAME);
+}
+
+function popnoteDirectoryFor(basePath) {
+  return path.join(kobitoDirectoryFor(basePath), POPNOTE_DIRECTORY_NAME);
+}
+
+function tagsFileFor(basePath) {
+  return path.join(kobitoDirectoryFor(basePath), TAGS_DIRECTORY_NAME, "tags.json");
+}
+
+function legacyDatasetDirectoryFor(basePath) {
+  return path.join(basePath, LEGACY_DATASET_DIRECTORY_NAME);
 }
 
 // 保守ツール用：現在の基準パスのデータセット、未移行なら旧保存先のパスを返す。
@@ -156,4 +184,4 @@ function activePaths(machinePaths = pathsFor()) {
   return pathsFor(machinePaths.dataDirectory, settings.legacy?.contentDirectory || machinePaths.dataDirectory);
 }
 
-module.exports = { CHARACTER_SPEEDS, DATASET_DIRECTORY_NAME, DEFAULT_BATTERY_COLORS, activePaths, databasePathIn, datasetDirectoryFor, defaultDataDirectory, ensurePrivateDirectories, loadSettings, machineRecord, normalizeLocalLlm, normalizeSharedSettings, pathsFor, readJsonIfPresent, writeJsonAtomic };
+module.exports = { APP_DATA_DIRECTORY_NAME, CHARACTER_SPEEDS, DATASET_DIRECTORY_NAME, DEFAULT_BATTERY_COLORS, LEGACY_DATASET_DIRECTORY_NAME, POPNOTE_DIRECTORY_NAME, TAGS_DIRECTORY_NAME, activePaths, databasePathIn, datasetDirectoryFor, kobitoDirectoryFor, legacyDatasetDirectoryFor, popnoteDirectoryFor, tagsFileFor, defaultDataDirectory, ensurePrivateDirectories, loadSettings, machineRecord, normalizeLocalLlm, normalizeSharedSettings, pathsFor, readJsonIfPresent, writeJsonAtomic };

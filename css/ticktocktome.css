@@ -211,6 +211,7 @@ html.theme-unlit{filter:grayscale(1) saturate(0) brightness(.96)}
 .dataset-summary{display:grid;grid-template-columns:minmax(220px,.8fr) minmax(0,1.6fr);gap:14px;align-items:end;margin-top:16px}.dataset-summary>div>span,.dataset-id-form span{display:block;margin-bottom:6px;font-size:9px;font-weight:700}.dataset-summary .dataset-path{margin:0}
 .dataset-id-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.dataset-id-form input{width:100%;height:36px;padding:0 10px;border:1px solid var(--line);background:var(--paper)}.dataset-id-form button{height:36px}
 .dataset-actions{display:flex;justify-content:flex-end;margin-top:14px}
+.dataset-popnote{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}.dataset-popnote h3{margin:0;font-size:13px}.dataset-popnote>p{color:var(--muted);font-size:12px}
 .dataset-relink{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}.dataset-relink h3{margin:0;font-size:13px}.dataset-relink h3 small{color:var(--coral)}.dataset-relink>p{color:var(--muted);font-size:8px}
 @media(max-width:800px){.dataset-summary{grid-template-columns:1fr}}
 body.dataset-setup-mode #navigationPowerLayer{display:none}

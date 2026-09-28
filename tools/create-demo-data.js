@@ -26,7 +26,7 @@ function main() {
   fs.mkdirSync(path.join(demoFiles, "references"), { recursive: true });
   fs.writeFileSync(path.join(demoFiles, "notes", "reading-notes.md"), "# 架空の読書メモ\n\nTomeletの使用感確認用です。\n");
   fs.writeFileSync(path.join(demoFiles, "references", "example-paper.txt"), "Tomelet demo file.\n");
-  // デモ用フォルダ自体を基準パスにし、直下の.TickTockTomeへデモデータを保存する。
+  // デモ用フォルダ自体を基準パスにし、直下の.kobito-toolsへデモデータを保存する。
   createDataset(demoFiles, { datasetId: "デモ" });
   const runtimePaths = datasetPaths(dataDirectory, demoFiles);
   writeJsonAtomic(machinePaths.settingPath, { schemaVersion: 2, revision: 1, port: 43177, machineId: randomUUID(), basePath: fs.realpathSync(demoFiles), localLlm: { enabled: false, executablePath: "", modelPath: "", pdfTextPath: "" } });

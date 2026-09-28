@@ -18,16 +18,18 @@ function temporaryDirectory(name) {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), name)));
 }
 
-test("基準パス直下の.TickTockTomeへIDと共有設定を保存し、既存データは上書きしない", () => {
+test("基準パス直下の.kobito-toolsへIDと共有設定、Tomelet/へ本体のデータを保存し、既存データは上書きしない", () => {
   const basePath = temporaryDirectory("ticktocktome-dataset-");
   try {
     dataset.createDataset(basePath, { datasetId: " 研究用 ", settings: { fontPreset: "mincho" } });
     const loaded = dataset.readDataset(basePath);
     assert.equal(loaded.datasetId, "研究用");
     assert.equal(loaded.settings.fontPreset, "mincho");
-    for (const name of ["database", "backups", "exports", "quarantine", "uploads"]) assert.ok(fs.statSync(path.join(basePath, ".TickTockTome", name)).isDirectory());
+    assert.equal(JSON.parse(fs.readFileSync(path.join(basePath, ".kobito-tools", "dataset.json"), "utf8")).format, "kobito-tools-dataset");
+    for (const name of ["database", "backups", "exports", "quarantine", "uploads"]) assert.ok(fs.statSync(path.join(basePath, ".kobito-tools", "Tomelet", name)).isDirectory());
     assert.throws(() => dataset.createDataset(basePath, { datasetId: "別" }), /既に/);
-    assert.equal(dataset.normalizeBasePath(path.join(basePath, ".TickTockTome")), basePath);
+    for (const selected of [".kobito-tools", ".kobito-tools/Tomelet", ".kobito-tools/PopNote", ".TickTockTome"]) assert.equal(dataset.normalizeBasePath(path.join(basePath, selected)), basePath);
+    assert.equal(dataset.normalizeBasePath(path.join(basePath, "PopNote")), path.join(basePath, "PopNote"));
     assert.throws(() => dataset.validateDatasetId(""), /1〜60文字/);
   } finally { fs.rmSync(basePath, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
@@ -39,7 +41,7 @@ test("別のPCが使用中のデータセットは開かず、期限切れや強
     dataset.acquireLock(basePath, "machine-a-0001");
     assert.throws(() => dataset.acquireLock(basePath, "machine-b-0002"), (error) => error.statusCode === 423 && error.lockHolder.samePc === false);
     const lock = dataset.readLock(basePath);
-    fs.writeFileSync(path.join(basePath, ".TickTockTome", "lock.json"), JSON.stringify({ ...lock, heartbeatAt: new Date(Date.now() - dataset.LOCK_STALE_MS - 1000).toISOString() }));
+    fs.writeFileSync(path.join(basePath, ".kobito-tools", "Tomelet", "lock.json"), JSON.stringify({ ...lock, heartbeatAt: new Date(Date.now() - dataset.LOCK_STALE_MS - 1000).toISOString() }));
     assert.equal(dataset.acquireLock(basePath, "machine-b-0002").machineId, "machine-b-0002");
     assert.equal(dataset.acquireLock(basePath, "machine-a-0001", { force: true }).machineId, "machine-a-0001");
     dataset.releaseLock(basePath, "machine-b-0002");
@@ -197,7 +199,7 @@ test("旧設定の環境で基準パスを選ぶと、IDを付けて移行し、
     servers.length = 0;
 
     // 別のPCで同じフォルダを選ぶと、保存済みのIDを確認に使える。
-    const other = await startServer(path.join(root, "pc-b"), { machineId: "machine-b-000002", basePath: otherBase }, { TICKTOCKTOME_TEST_PICK_FOLDER: path.join(basePath, ".TickTockTome") });
+    const other = await startServer(path.join(root, "pc-b"), { machineId: "machine-b-000002", basePath: otherBase }, { TICKTOCKTOME_TEST_PICK_FOLDER: path.join(basePath, ".kobito-tools") });
     servers.push(other);
     bootstrap = await (await fetch(`${other.base}/api/v1/bootstrap`)).json();
     assert.equal(bootstrap.setup.status, "missing");
@@ -216,7 +218,7 @@ test("旧設定の環境で基準パスを選ぶと、IDを付けて移行し、
   }
 });
 
-test("作成・移行の途中で失敗しても、中途半端な.TickTockTomeを残さない", async () => {
+test("作成・移行の途中で失敗しても、中途半端な.kobito-toolsを残さない", async () => {
   const basePath = temporaryDirectory("ticktocktome-dataset-fail-");
   try {
     await assert.rejects(dataset.createDatasetWith(basePath, { datasetId: "失敗" }, async (directory) => {
@@ -230,10 +232,21 @@ test("作成・移行の途中で失敗しても、中途半端な.TickTockTome�
   } finally { fs.rmSync(basePath, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
-test("同じPCのPopNote!が持つロックは本体が引き継ぎ、別のPCのPopNote!のロックは尊重する", () => {
-  const now = Date.now(), heartbeatAt = new Date(now).toISOString();
-  const popnote = { app: "popnote", machineId: "popnote-local", hostname: os.hostname(), pid: 1, heartbeatAt };
-  assert.equal(dataset.lockIsActive(popnote, "ttt-machine", now), false);
-  assert.equal(dataset.lockIsActive({ ...popnote, hostname: "another-mac.local" }, "ttt-machine", now), true);
-  assert.equal(dataset.lockIsActive({ machineId: "other-pc", hostname: os.hostname(), pid: 1, heartbeatAt }, "ttt-machine", now), true);
+test("PopNote!だけが作ったデータセットでも、本体はIDを引き継いでTomelet/を作って開く", async () => {
+  const root = temporaryDirectory("ticktocktome-popnote-only-");
+  const basePath = path.join(root, "base");
+  fs.mkdirSync(path.join(basePath, ".kobito-tools", "PopNote", "database"), { recursive: true });
+  fs.writeFileSync(path.join(basePath, ".kobito-tools", "dataset.json"), JSON.stringify({ format: "kobito-tools-dataset", schemaVersion: 1, datasetId: "メモ帳", createdAt: new Date().toISOString(), revision: 1, settings: {}, legacyRoots: {} }));
+  const servers = [];
+  try {
+    const server = await startServer(path.join(root, "pc"), { machineId: "machine-p-000001", basePath });
+    servers.push(server);
+    const bootstrap = await (await fetch(`${server.base}/api/v1/bootstrap`)).json();
+    assert.equal(bootstrap.dataset.id, "メモ帳");
+    assert.ok(fs.existsSync(path.join(basePath, ".kobito-tools", "Tomelet", "database", "ticktocktome.sqlite3")));
+    assert.equal(dataset.readLock(basePath).machineId, "machine-p-000001");
+  } finally {
+    for (const server of servers) await stopServer(server);
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
 });

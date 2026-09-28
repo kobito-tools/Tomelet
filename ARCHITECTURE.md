@@ -19,12 +19,11 @@
 Gitリポジトリ          OSのローカル領域（PC固有）       基準パス（利用者が選ぶ1か所）
 TickTockTome/          TickTockTome/                    <基準パス>/
 ├── index.html         ├── config/setting.json          ├── 利用者のPDF・ファイル
-├── css/ js/           │     （基準パス・ポート・LLM）  └── .TickTockTome/
+├── css/ js/           │     （基準パス・ポート・LLM）  └── .kobito-tools/
 ├── scripts/           ├── config/integrations.json         ├── dataset.json（ID・共有設定）
-├── migrations/        └── runtime/                         ├── lock.json（使用中の印）
-├── tools/                                                  ├── database/ticktocktome.sqlite3
-└── tests/                                                  ├── uploads/ backups/ exports/
-                                                            └── quarantine/
+├── migrations/        └── runtime/                         ├── Tomelet/（lock.json・database/・uploads/ backups/ …）
+├── tools/                                                  ├── PopNote/（PopNote!のメモ）
+└── tests/                                                  └── Tags/tags.json（共有タグ）
 ```
 
 個人データ領域や基準パスの絶対パスをソースコードへ埋め込みません。
@@ -59,77 +58,51 @@ SQLite
 | 文書 | 論文・PDFの書類などの読書状態、タグ、要点、関連日記の管理 |
 | 設定 | 配色テンプレート、説明付きの固定8分類タグ、基準パス（ID・切替・要再リンク）、ゴミ箱の管理 |
 | 使い方 | 主要画面と基準パス・データセットの考え方を図入りで説明 |
-| メモ（別リポジトリの連携アプリ PopNote!） | カレンダー・検索・ファイル・ゴミ箱でメモを表示し、PopNote! を呼び出す |
+| メモ（別リポジトリの連携アプリ PopNote!） | 表示する設定のとき、カレンダー・検索・ファイルでメモを表示し、PopNote! を呼び出す |
 
 日付ごとの事実はカレンダーの日表示へまとめます。活動分析は、予定と実績を計算で自動集計し、毎晩文章を入力しなくても成立させます。作業ツリーはタグの長期的なつながりを見る画面です。検索は独立タブを持たず、全画面共通の上部検索欄から横断検索結果へ移動します。
 
 ## メモ（連携アプリ PopNote!）
 
-メモの画面は別リポジトリの macOS アプリ PopNote!（バンドルID `io.github.kobito-tools.popnote`）が持ち、Tomelet はメモのデータ、検証、表示先（カレンダー・検索・ファイル・ゴミ箱）を担当します。PopNote! は保存先フォルダを自分で選び、そこへデータセット形式（`.TickTockTome/`）で保存します。保存先を本体が開いている間だけ、アプリ別トークンで認証する連携API（`/api/v1/integrations/memo/…`）を使います。
+メモは別リポジトリの macOS アプリ PopNote!（バンドルID `io.github.kobito-tools.popnote`）が作成・保存します。PopNote! は保存先フォルダを自分で選び、`.kobito-tools/PopNote/` の自分のDBへ直接保存します。Tomelet はメモを書き込まず、「PopNote! のメモを本アプリでも表示する」設定のときだけ、PopNote! のDBを読み取り専用で開いて自分のDBの `memos` 表へ写し、カレンダー・検索・ファイルに表示します（`scripts/popnote-memos.js`）。
 
 ```text
-PopNote!.app ─┬─ 保存先を本体が開いている → /api/v1/integrations/memo/…（X-TickTockTome-Dataset付き）→ server.js → SQLite
-              └─ それ以外 → <保存先>/.TickTockTome/ を直接読み書き（lock.jsonに app: "popnote"）
-PopNote!.app ─ companion-connect.js popnote --no-launch ─→ integrations.jsonの専用トークン（memo:read / memo:write）
+PopNote!.app ─→ <基準パス>/.kobito-tools/PopNote/（database/popnote.sqlite3・uploads/・lock.json）
+                                  │ 読み取り専用（更新日時が変わったら写し直す）
+Tomelet server.js ─→ Tomelet/database の memos 表（表示用の写し）
+PopNote!.app ─ companion-connect.js popnote --no-launch ─→ 専用トークン → GET /api/v1/integrations/memo/context（本体が開いている基準パス）
 本体の「✎」・カレンダー → server.js → open popnote://open/<メモID>?dataset=<データセットキー>
 ```
 
+- 起動時に `.kobito-tools/PopNote/` のDBが見つかり、まだ決めていなければ「PopNote!のデータが確認されました。本アプリ上でも表示しますか？」と尋ねます。答えは `dataset.json` の `showPopNoteMemos` に保存し、設定の「基準パス」から変えられます。
 - 連携アプリの一覧と権限は `scripts/integrations/companions.js` で固定し、未知のアプリIDにはトークンを発行しません。
 - 本体の「✎」は、PopNote! のトークンが登録済みの場合だけ表示します。
-- 同じPCの PopNote! が置いた使用中の印（`app: "popnote"`）は、本体がデータセットを開くときに引き継ぎます（`dataset.js` の `lockIsActive`）。PopNote! は印を失ったことを検知し、以後は連携API経由で保存します。
-- 連携APIは `X-TickTockTome-Dataset` が開いているデータセットと違えば409（`dataset-mismatch`）を返し、別の基準パスへ保存しません。
-- PopNote! は本体のサーバーを起動・停止しません。
-- PopNote! がバンドルIDから本体を見つけられるよう、`Tomelet.app` の作成時に Launch Services へ登録します。
+- 連携APIは `context` だけを返します。本体経由でメモを書き込む古い PopNote! には410（`popnote-update-required`）を返します。
 
-`memos`へ見出し、本文HTML、検索用の本文テキスト、作成日時を保存し、タグは`memo_tags`、基準パスの添付は`managed_files`を`memo_managed_files`で、クリップボード画像は`managed_uploads`を`memo_uploads`で参照します。本文HTMLはサーバーで許可リスト（装飾4種・改行・段落・箇条書き・アップロード済み画像）へ整え、属性やスクリプトは保存しません。まだ何も書いていない新規メモはDBへ作らず、最初の入力で作成日時つきで登録します。`timeline_view`にメモを加え、作成日時をPCの現地時刻でカレンダーへ表示します。
+## 共有タグ
 
-## ナビゲーション演出の分離
+タグは Tomelet と PopNote! で共有します。正本は `.kobito-tools/Tags/tags.json` で、各アプリのDBの `tags`・`tag_categories` 表はその写しです（日記・メモなどとの関連付けに外部キーを使うため）。同期は `scripts/tag-store.js`（PopNote! は `Sources/TagStore.swift`）が同じ規則で行います。
 
-ページの切替とデータ取得は引き続き`js/app.js`が担当し、演出は`animations/navigation-power/`へ分離します。
-
-| ファイル | 担当 |
-|---|---|
-| `styles.css` | パステル色の電池、背負った豆電球、細いコード、歩行と抜き差しの表現 |
-| `geometry.js` | 電池の左端子とキャラクターの画面上の位置計算 |
-| `screen-beans.js` | 親子のScreen Beans、背負う豆電球、コード、プラグのSVG生成 |
-| `controller.js` | 丁寧に抜く、無色で一定速度歩行、丁寧に挿す、同色点灯の順序制御 |
-
-ナビゲーションを押すとページ切替処理はすぐに始まり、演出は独立して進みます。キャラクターは一定速度（既定は毎秒150px）で歩くため、遠い電池ほど到着に時間がかかります。プラグを抜いた後はキャラクターと豆電球を無色にし、自動テーマも照度を抑えた明るい無彩色へ戻します。この間は固定色を持つカードやグラフを含む画面全体も一時的に無彩色化します。接続完了後は豆電球の点灯と同時に、キャラクターを中心に電球色が約2秒かけて画面の一番遠い角まで円形に広がる照明表現（「視差効果を減らす」設定でも再生）でページテーマへ切り替えます。設定画面の「アニメーション」で照明演出をオフにすると、消灯を挟まずページ切替と同時にページの色を変えます。キャラクターの歩く速さ（毎秒80・150・240・400px）も同じ画面で選べます。ページの代表色とこれらの設定は、基準パスのデータセット（`dataset.json`）へ保存し、電池の淡色と自動テーマは代表色から生成します。
-
-## 時間割の保存
-
-`daily_actions`へ日付、予定開始・終了、実績開始・終了、タイマー目標終了、実行状態、アクション、場所、達成度を保存します。タイマーを予定より遅く開始しても時間割の予定は変更せず、カウントダウンだけがタイマー目標終了を参照します。予定時刻を過ぎただけでは実行済みにせず、状態は`planned`・`in_progress`・`completed`・`skipped`で区別します。タグは`daily_action_tags`、メモは`daily_action_completions`、管理ファイルと資料との関係は中間テーブルへ分離します。Todoも`todo_managed_files`と`todo_library_items`で同じ管理ファイル・資料を参照します。Todoの画面上は選択済みファイル名だけを要約表示し、追加・変更は右側の資料選択画面へ分離します。1件の追加・編集と関連情報の入れ替えは同じトランザクションで行い、`revision`が古い更新は拒否します。
-
-Todoは未完了の仕事、アクションは実行セッションとして別テーブルに保存し、`todo_id`で関連付けます。アクション終了時に達成度を同期し、100%未満では利用者が選んだ場合だけTodoへ継続します。予定終了時刻と実際の完了日時を分け、終了時間超過の未処理アクションは起動時確認の対象にします。
-
-活動分析のLLM結果は`daily_analyses`へ元データの指紋と一緒に保存します。アクションや日記が更新されて指紋が変わると再分析対象になります。自動モードは起動後に直近7日間の過去日だけを処理し、通常の集計表示を妨げません。
-
-タグのアーカイブは`archived_at`で管理します。通常のタグ選択肢と一時非表示パネルからは除外しますが、中間テーブルの既存関係は削除せず、記録を編集した場合も保持します。
-
-左下タイマーは今日のアクションを画面用APIから取得し、現在実行中なら終了まで、次の予定があれば開始まで、それ以外は現在時刻を表示します。
-
-文書一覧ではPDFビューアーを項目ごとに起動しません。先頭ページを一度だけローカル画像へ変換してPC固有の実行領域へキャッシュし、一覧では遅延読み込みします。画像化できないOS・PDFでは軽量な書類画像へフォールバックします。PDF本体と共有DBの保存方針は変わりません。
-
-ファイル一覧は`file_index_items`、有効な日記の`file_links`、時間割に関連付けられた`managed_uploads`をSQLで統合します。タグは索引自身、Todo、日記、時間割からそれぞれ引き継ぎます。画面で複数タグが選択された場合は、各ファイルが選択タグをすべて含むかを判定するAND検索を行います。初期表示は500件までとし、一覧描画時には基準フォルダ内の実ファイルへアクセスしません。実パスの解決と存在確認は、詳細画面で利用者が「開く」を選んだ時点でサーバー側が行います。
-
-資料の共通情報は`library_items`へ保存し、お気に入りも共通項目として扱います。文書だけが使うキーワード、DOI、BibTeXコード全文も同じ行に保存し、書籍では空値にします。BibTeXキーだけを分離して管理しません。旧`textbook`データはマイグレーションで`book`へ統合し、旧基準パスIDは既存PDFを参照し続けるため互換用として保持します。メモは安全なMarkdown表示に加えて、ローカルKaTeXによる行内・独立LaTeX数式を表示できます。
-
-本棚へ追加したPDFは、まず`review_status=unverified`で仮登録し、一覧では赤い印を表示します。PDF本体は種類別基準フォルダに置いたまま、基準パスIDと相対パスだけを保存します。表紙画像だけはGit外の`uploads/`へ保存します。ローカルLLMを明示設定した場合だけ書誌情報候補を抽出し、自動保存はしません。
+- 同じIDは `revision` の大きい方を採用し、同じ `revision` なら内容を比べて決まった方を採ります。
+- タグは完全削除せず、アーカイブだけにします。片方のDBに参照先のない関連が残らないようにするためです。
+- 別々のアプリで同じ名前のタグを作った場合は、IDの順で後になる方の名前に印を付けて両方残します。
+- 書き込みは一時ファイルからの置き換えで行い、書く直前に `revision` が変わっていれば読み直して統合し直します。
+- 本体は開いたとき、画面の読み込みのたび（`tags.json` が変わったときだけ）、タグの変更の前後に同期します。
 
 プロジェクト画面は設けません。継続テーマの分類はタグへ一本化します。既存DBにある`projects`と`journal_projects`は、過去データを失わないため当面残しますが、新規UIとAPIからは使用しません。
 
 ## 基準パスの設定
 
-基準パスは1か所だけです。基準パスを1つの「データセット」として扱い、直下の隠しフォルダ`.TickTockTome/`にID、共有設定、SQLite、アップロード、バックアップを置きます。書籍・文書・ファイルは`root_id = "base"`と基準パスからの相対パスで参照します。処理は`scripts/dataset.js`にまとめています。
+基準パスは1か所だけです。基準パスを1つの「データセット」として扱い、直下の隠しフォルダ`.kobito-tools/`の`dataset.json`にIDと共有設定、`Tomelet/`にSQLite、アップロード、バックアップを置きます。書籍・文書・ファイルは`root_id = "base"`と基準パスからの相対パスで参照します。処理は`scripts/dataset.js`にまとめています。
 
 ```text
 起動
-  ↓ setting.jsonの基準パスに.TickTockTome/dataset.jsonがあるか確認
+  ↓ setting.jsonの基準パスに.kobito-tools/dataset.jsonがあるか確認（旧.TickTockTome/だけなら分割移行してから開く）
   ↓ lock.jsonで別のPCが使用中でないか確認（30秒ごとに更新、2分で期限切れ）
 開けない → DBを開かない「設定待ち」で起動し、画面は基準パスの設定だけを表示
   ↓ 「基準パスを選択」→ OS標準のフォルダ選択画面
-  ├─ .TickTockTomeあり → 「[ID]に切り替えますか？」→ ロックを取ってDBを開き直す
-  └─ .TickTockTomeなし → IDを入力して作成（旧データは任意で複製・変換）
+  ├─ .kobito-tools（または旧.TickTockTome）あり → 「[ID]に切り替えますか？」→ ロックを取ってDBを開き直す
+  └─ なし → IDを入力して作成（旧データは任意で複製・変換）
 ```
 
 - 切替はサーバーの再起動なしで行います。切替先のロックを先に取り、取れた場合だけ現在のDBを閉じます。
@@ -171,6 +144,6 @@ Todoは未完了の仕事、アクションは実行セッションとして別�
 全文検索はSQLite FTS5を使用します。Journalの追加、更新、論理削除に合わせてトリガーが検索索引を更新します。
 ## 共有データとPC固有設定
 
-`setting.json`と`integrations.json`はOS標準のTomeletローカル領域に残します。`setting.json`に保存するのは、現在の基準パス、PCの識別子、ポート、ローカルLLMの実行ファイルの場所だけです。配色・フォント・タグ表示は`.TickTockTome/dataset.json`へ保存し、同じ基準パスを開いたPCで共有します。
+`setting.json`と`integrations.json`はOS標準のTomeletローカル領域に残します。`setting.json`に保存するのは、現在の基準パス、PCの識別子、ポート、ローカルLLMの実行ファイルの場所だけです。配色・フォント・タグ表示・PopNote!のメモを表示するかは`.kobito-tools/dataset.json`へ保存し、同じ基準パスを開いたPCで共有します。
 
-複数PCでの同時編集は第2段階で、PCごとの変更ログを`.TickTockTome/changes/<PC>/`へ書き出して取り込む方式を予定しています。第1段階では排他ロックで同時使用を防ぎます。
+複数PCでの同時編集は第2段階で、PCごとの変更ログを`.kobito-tools/Tomelet/changes/<PC>/`へ書き出して取り込む方式を予定しています。第1段階では排他ロックで同時使用を防ぎます。

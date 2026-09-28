@@ -68,6 +68,13 @@ function updateMotion(settings, persist, input) {
   return { illumination, characterSpeed, revision: commit(settings, persist, "shared", { illumination, characterSpeed }) };
 }
 
+// PopNote!のメモを本体にも表示するか（データセットの共有設定）。
+function updatePopNoteMemos(settings, persist, input) {
+  if (Number(input?.revision) !== settings.revision) throw staleRevision();
+  if (typeof input.show !== "boolean") throw new Error("表示する・しないを選択してください。");
+  return { showPopNoteMemos: input.show, revision: commit(settings, persist, "shared", { showPopNoteMemos: input.show }) };
+}
+
 // ナビゲーションの表示言語（このPCだけの設定）。
 function updateLanguage(settings, persist, input) {
   if (Number(input?.revision) !== settings.revision) throw staleRevision();
@@ -82,4 +89,4 @@ function updateDatasetId(settings, persist, input) {
   return { datasetId, revision: commit(settings, persist, "shared", { datasetId }) };
 }
 
-module.exports = { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updateTagVisibility, updateTheme };
+module.exports = { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updatePopNoteMemos, updateTagVisibility, updateTheme };

@@ -17,7 +17,7 @@ const english = {
   "・ID、外見の設定": "· ID & appearance", "・ポート番号": "· Port number", "・日記・時間割（SQLite）": "· Journals & schedule (SQLite)",
   "・現在の基準パス": "· Current base path", "・表紙・添付・バックアップ": "· Covers, files, backups", "・連携トークン": "· Integration tokens",
   "今日の記録": "Today's record", "作業ツリー": "Work Tree", "分離": "Separate", "名前": "Name", "名前・タグ・関連する作業で検索": "Search by name, tag, or work",
-  "基準パス/.TickTockTome": "Base path/.TickTockTome", "基準パスとこのPCの設定": "Base path and this PC", "基準パスは1か所だけ": "A single base path",
+  "基準パス/.kobito-tools": "Base path/.kobito-tools", "基準パスとこのPCの設定": "Base path and this PC", "基準パスは1か所だけ": "A single base path",
   "基準パス（1か所）": "Base path (one)", "報告書を仕上げる": "Finish the report", "場所: 基準パス": "Where: base path", "完了": "Done",
   "実行中｜報告書を仕上げる": "Running | Finish the report", "実験ノート整理": "Tidy lab notes", "常駐OFF": "Unpin", "文書": "Documents",
   "日刊記録": "Daily log", "日刊記録の日付カード": "Daily log date card", "時間割": "Schedule", "時間割と記録が同じ日付カードにまとまる図": "Schedule and records on one date card",

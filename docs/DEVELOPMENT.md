@@ -8,12 +8,12 @@ Tomelet の構成、データの保存方法、開発・保守用のコマンド
 |---|---|---|
 | 画面 | 日記を書く・探す・開く | Gitリポジトリ内 |
 | ローカルAPI | 画面からの依頼を検証する受付係 | Gitリポジトリ内 |
-| SQLite | 日記、タグ、時間割、作業履歴を保存 | 基準パス直下の`.TickTockTome/` |
+| SQLite | 日記、タグ、時間割、作業履歴を保存 | 基準パス直下の`.kobito-tools/Tomelet/` |
 | 関連ファイル・本・文書のPDF | 基準パスからの相対パス（本体はコピーしない） | SQLite／本体は基準パス内 |
-| 表紙画像・時間割からアップロードした添付 | ファイル実体 | `.TickTockTome/uploads/` |
+| 表紙画像・時間割からアップロードした添付 | ファイル実体 | `.kobito-tools/Tomelet/uploads/` |
 | PC固有設定・認証情報 | 現在の基準パス、ポート、連携トークン、ローカルLLMの場所 | Gitリポジトリ外のローカル領域 |
 
-主要データは、利用者が選んだ基準パス直下の隠しフォルダ`.TickTockTome/`（アプリと同じアイコン付き）へ保存します。PC固有設定は、ソースコードとは別の次の場所へ保存します。
+主要データは、利用者が選んだ基準パス直下の隠しフォルダ`.kobito-tools/`へ保存します。Tomeletのデータは`.kobito-tools/Tomelet/`（アプリと同じアイコン付き）、PopNote!のメモは`.kobito-tools/PopNote/`、両アプリ共通のタグは`.kobito-tools/Tags/tags.json`です。PC固有設定は、ソースコードとは別の次の場所へ保存します。
 
 - macOS: `~/Library/Application Support/TickTockTome/`
 - Windows: `%LOCALAPPDATA%\TickTockTome\`
@@ -39,7 +39,7 @@ npm test                       # テスト
 
 旧名 DailyLog で使っていた場合は、新しい名前の領域が無い限り、既存の `DailyLog` フォルダと `dailylog.sqlite3` をそのまま使います。環境変数も旧名の `DAILYLOG_DATA_DIR`、`DAILYLOG_PORT` を引き続き読み取ります。
 
-内部の識別子（データフォルダ `.TickTockTome/`、PC固有設定の `TickTockTome/`、バンドルID `local.ticktocktome.desktop`、環境変数 `TICKTOCKTOME_*`）は、旧名 Tick Tock Tome のまま据え置いています。既存のデータと PopNote! との連携を保つためです。
+内部の識別子（PC固有設定の `TickTockTome/`、バンドルID `local.ticktocktome.desktop`、環境変数 `TICKTOCKTOME_*`）は、旧名 Tick Tock Tome のまま据え置いています。既存のデータと PopNote! との連携を保つためです。
 
 ## データの保存方法
 
@@ -66,7 +66,7 @@ SQLiteへ実体を保存するもの：
 
 本・文書のPDFは、基準パスからの相対パスだけを保存します。PDFの容量による登録制限はありません。新規作成・編集フォームの「PDF」から選択できます。ブラウザはドロップしたファイルの絶対パスを取得できないため、ドロップ時も選択画面で同じPDFを選び直してください。基準パスの外のファイルは登録できません。
 
-本・文書のPDFと一般ファイルはコピーせず、基準パスからの相対パスだけを保存します。表紙画像と、旧版で直接追加済みの添付は、`.TickTockTome/uploads/`へ実体を保存します。既存データは移行時にも削除しません。
+本・文書のPDFと一般ファイルはコピーせず、基準パスからの相対パスだけを保存します。表紙画像と、旧版で直接追加済みの添付は、`.kobito-tools/Tomelet/uploads/`へ実体を保存します。既存データは移行時にも削除しません。
 
 PDF追加直後の資料は「未確認」となり、一覧に赤い印を表示します。ローカルLLMは初期状態では無効で、モデルを自動ダウンロードせず、外部APIにも送信しません。設定画面の手順に従って`llama-cli`、GGUFモデル、`pdftotext`の場所を明示的に設定した場合だけ、PDFから書誌情報の候補を抽出します。候補は自動保存されず、編集画面で確認して保存します。
 
@@ -77,19 +77,24 @@ Tomeletは、基準パスを1つの「データセット」として扱います
 ```text
 基準パス/                       ← 書籍・文書・ファイルはここからの相対パスで管理
 ├── Book/ Paper/ …              ← 利用者のファイル（コピーしない）
-└── .TickTockTome/              ← アプリと同じアイコンの隠しフォルダ
-    ├── dataset.json            ← ID、配色・フォント・タグ表示の設定
-    ├── lock.json               ← 使用中の印（開いている間だけ）
-    ├── database/ticktocktome.sqlite3
-    ├── uploads/  backups/  exports/  quarantine/
+└── .kobito-tools/              ← こびとツール共通の隠しフォルダ
+    ├── dataset.json            ← ID（両アプリ共通）、配色・フォント・タグ表示・PopNote!表示の設定
+    ├── Tomelet/                ← アプリと同じアイコン
+    │   ├── lock.json           ← 使用中の印（開いている間だけ）
+    │   ├── database/ticktocktome.sqlite3
+    │   └── uploads/  backups/  exports/  quarantine/
+    ├── PopNote/                ← PopNote!のメモ（database/popnote.sqlite3・uploads/・lock.json）
+    └── Tags/tags.json          ← 両アプリで共有するタグ（各DBのtags表はこの写し）
 ```
+
+以前の版の`.TickTockTome/`（本体とPopNote!が1つのDBを共有）は、開いたときに`scripts/dataset.js`の`migrateLegacyLayout`で上の形へ分割移行し、元のフォルダは`.TickTockTome.migrated/`として残します。手動で移行するときは`node tools/migrate-kobito-tools.js <基準パス>`を使います（TomeletとPopNote!を終了してから）。
 
 - **データセット（基準パス側）**：ID、日記、時間割、書籍・文書の情報、表紙画像、添付、バックアップ、外見の設定
 - **PC固有設定**：現在の基準パス、ポート番号、アプリ連携用トークン、ローカルLLMの実行ファイルの場所
 
 基準パスをGoogle Driveなどの同期フォルダにすれば、別PCでも同じフォルダを基準パスに選ぶだけで同じデータを開けます。フォルダごと移動しても、相対パスで管理しているため参照は切れません。
 
-> 開いている間は`.TickTockTome/lock.json`に使用中の印を置き、別のPCから同時に開こうとすると確認を表示します。同時に開くと片方の変更が失われるおそれがあるため、PCを切り替えるときは先にTomeletを終了し、同期の完了を確認してください。複数PCでの同時編集は、今後、PCごとの変更ログを同期する方式で対応する予定です。
+> 開いている間は`.kobito-tools/Tomelet/lock.json`に使用中の印を置き、別のPCから同時に開こうとすると確認を表示します。同時に開くと片方の変更が失われるおそれがあるため、PCを切り替えるときは先にTomeletを終了し、同期の完了を確認してください。複数PCでの同時編集は、今後、PCごとの変更ログを同期する方式で対応する予定です。
 
 ## README のデモGIFを作り直す
 
