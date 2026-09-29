@@ -4,8 +4,10 @@ const port=Number(process.argv[2]),runtime=process.argv[3],language=process.argv
 if(!Number.isInteger(port)||port<1024||port>65535||!runtime||!path.isAbsolute(runtime))process.exit(1);
 let command,args;
 if(process.platform==='darwin'){
- const source=path.join(__dirname,'TimerWindow.swift'),binary=path.join(runtime,'TickTockTomeTimer');
- if(!fs.existsSync(binary)||fs.statSync(source).mtimeMs>fs.statSync(binary).mtimeMs){
+ // 配布用の.appは、同梱のNode.jsの隣にビルド済みのタイマーを置く（利用者のMacにはSwiftコンパイラが無いため）。
+ const bundled=path.join(path.dirname(process.execPath),'TickTockTomeTimer');
+ const source=path.join(__dirname,'TimerWindow.swift'),binary=fs.existsSync(bundled)?bundled:path.join(runtime,'TickTockTomeTimer');
+ if(binary!==bundled&&(!fs.existsSync(binary)||fs.statSync(source).mtimeMs>fs.statSync(binary).mtimeMs)){
   const build=spawnSync('/usr/bin/xcrun',['swiftc','-parse-as-library',source,'-o',binary],{stdio:'ignore',shell:false});
   if(build.status!==0)process.exit(1);
  }

@@ -24,6 +24,10 @@ TickTockTome.app/
 DailyLog.app/
 vendor/katex/
 
+# Release packaging (tools/package-macos-release.js)
+.build/
+dist/
+
 # Test and coverage output
 coverage/
 .test-output/

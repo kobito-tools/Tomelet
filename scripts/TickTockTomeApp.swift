@@ -20,15 +20,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var launcher: Process?
     private var isStopping = false
 
-    private var projectRoot: URL {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "TickTockTomeProjectRoot") as? String else { fatalError("TickTockTomeProjectRoot is missing") }
-        return URL(fileURLWithPath: value, isDirectory: true)
+    // Tomelet-Setupで作った.appは絶対パス、配布用の.app（ソースとNode.jsを同梱）は.appからの相対パスを持つ。
+    private func bundledPath(_ key: String, isDirectory: Bool) -> URL {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { fatalError("\(key) is missing") }
+        return value.hasPrefix("/") ? URL(fileURLWithPath: value, isDirectory: isDirectory) : Bundle.main.bundleURL.appendingPathComponent(value, isDirectory: isDirectory)
     }
 
-    private var nodeExecutable: URL {
-        guard let value = Bundle.main.object(forInfoDictionaryKey: "TickTockTomeNodePath") as? String else { fatalError("TickTockTomeNodePath is missing") }
-        return URL(fileURLWithPath: value)
-    }
+    private var projectRoot: URL { bundledPath("TickTockTomeProjectRoot", isDirectory: true) }
+
+    private var nodeExecutable: URL { bundledPath("TickTockTomeNodePath", isDirectory: false) }
 
     // PC固有設定（config/setting.json）。ポートと表示言語を読む。
     private var savedSetting: [String: Any] {
