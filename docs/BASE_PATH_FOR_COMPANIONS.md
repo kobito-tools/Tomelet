@@ -4,6 +4,7 @@ PopNote! など、Tomelet と連携するアプリの開発者向けにまとめ
 
 - **1〜3章**：基準パスとデータセット、保存フォルダの形
 - **4〜5章**：共有タグと、PopNote! のメモの保存・表示（本体・PopNote! の両方で**実装済み**）
+- **5a章**：Pastephant（クリップボード履歴）から残した日ごとのメモ（本体・Pastephant の両方で**実装済み**）
 - **6章**：旧形式 `.TickTockTome/` からの移行
 
 ---
@@ -32,6 +33,10 @@ PopNote! など、Tomelet と連携するアプリの開発者向けにまとめ
     │   ├── lock.json                  ← PopNote! の使用中の印
     │   ├── database/popnote.sqlite3   ← メモ（本体と同じ表の形）
     │   └── uploads/                   ← メモに貼った画像
+    ├── Pastephant/                    ← Pastephant（書き出すときだけ使う）
+    │   ├── lock.json                  ← 書き出し中の印
+    │   ├── database/pastephant.sqlite3 ← 日ごとのクリップのメモ（本体と同じ表の形）
+    │   └── uploads/                   ← メモに添付した画像
     └── Tags/tags.json                 ← 両アプリで共有するタグ
 ```
 
@@ -100,6 +105,20 @@ OS標準のローカル領域（macOS では `~/Library/Application Support/Tick
 | その他の `/api/v1/integrations/memo/…` | 410 `{"code": "popnote-update-required"}`（本体経由でメモを書き込んでいた古い PopNote! 向け） |
 | `companion-connect.js popnote --no-launch` | サーバーを起動せずに、ポートと専用トークンだけを返す |
 | 「✎」・カレンダーのメモ | `popnote://open/<メモID>?dataset=<キー>` で開く。PopNote! は保存先が違えば、そのキーの保存先へ切り替えてから開く |
+
+## 5a. Pastephant から残したクリップ
+
+Pastephant（クリップボード履歴）は、履歴そのものは各Macの `~/Library/Application Support/Pastephant/` に置き、基準パスには書き出した物だけを置きます。
+
+- **書き出し（Pastephant）**：`⌘S` やタグの規則で残すと、その日の分を「09月28日のクリップ」という1つのメモにまとめ、`.kobito-tools/Pastephant/database/pastephant.sqlite3` に保存します（同じ日の2回目以降は末尾に追記）。DBは PopNote! と同じく本体の `migrations/*.sql` の写し（Pastephant の `schema/tomelet/`）で作り、PRAGMAも同じです。書き出す間だけ `lock.json`（`app: "pastephant"`）を置きます。
+- 本文は本体のメモと同じ規則のHTML（`div`・`b`・`br`・`img`）で、画像は `managed_uploads`・`memo_uploads` に登録し、実体は `Pastephant/uploads/` に置きます。タグは共有タグ（4章）の ID で `memo_tags` に入れます。
+- **表示（本体）**：`Pastephant/database/pastephant.sqlite3` を見つけると、PopNote! と同じように一度だけ表示するかを尋ね、`dataset.json` の `settings.showPastephantMemos` に保存します。表示する場合は `mirrorCompanionMemos`（`scripts/popnote-memos.js`）で PopNote! のメモと一緒に `memos` 表へ写します。画像は本体の `uploads/` に無ければ `PopNote/uploads/`・`Pastephant/uploads/` の順に探します。
+- **開く**：Pastephant のメモを開くと、`pastephant://open?query=exported:<日付>` で Pastephant の履歴を、その日に残した項目に絞って開きます。
+
+| API | 内容 |
+|---|---|
+| `PUT /api/v1/settings/pastephant-memos` | `{revision, show}`。表示する・しないを共有設定に保存する |
+| `GET /api/v1/bootstrap` の `pastephant` | `{detected, show}` |
 
 ## 6. 旧形式 `.TickTockTome/` からの移行
 

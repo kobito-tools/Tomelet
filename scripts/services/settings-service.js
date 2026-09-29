@@ -75,6 +75,12 @@ function updatePopNoteMemos(settings, persist, input) {
   return { showPopNoteMemos: input.show, revision: commit(settings, persist, "shared", { showPopNoteMemos: input.show }) };
 }
 
+function updatePastephantMemos(settings, persist, input) {
+  if (Number(input?.revision) !== settings.revision) throw staleRevision();
+  if (typeof input.show !== "boolean") throw new Error("表示する・しないを選択してください。");
+  return { showPastephantMemos: input.show, revision: commit(settings, persist, "shared", { showPastephantMemos: input.show }) };
+}
+
 // ナビゲーションの表示言語（このPCだけの設定）。
 function updateLanguage(settings, persist, input) {
   if (Number(input?.revision) !== settings.revision) throw staleRevision();
@@ -89,4 +95,4 @@ function updateDatasetId(settings, persist, input) {
   return { datasetId, revision: commit(settings, persist, "shared", { datasetId }) };
 }
 
-module.exports = { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updatePopNoteMemos, updateTagVisibility, updateTheme };
+module.exports = { updateDatasetId, updateFontPreset, updateLanguage, updateMotion, updateLocalLlm, updatePastephantMemos, updatePopNoteMemos, updateTagVisibility, updateTheme };

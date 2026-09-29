@@ -12,10 +12,12 @@ const DATABASE_FILE_NAME = "ticktocktome.sqlite3";
 //   .kobito-tools/dataset.json  データセットのID（両アプリ共通）と本体の共有設定
 //   .kobito-tools/Tomelet/      本体のDB・アップロード・バックアップ
 //   .kobito-tools/PopNote/      PopNote!のメモ
+//   .kobito-tools/Pastephant/   Pastephant（クリップボード履歴）から残した日ごとのメモ
 //   .kobito-tools/Tags/         両アプリで共有するタグ
 const DATASET_DIRECTORY_NAME = ".kobito-tools";
 const APP_DATA_DIRECTORY_NAME = "Tomelet";
 const POPNOTE_DIRECTORY_NAME = "PopNote";
+const PASTEPHANT_DIRECTORY_NAME = "Pastephant";
 const TAGS_DIRECTORY_NAME = "Tags";
 // 以前の保存先。開いたときに .kobito-tools へ分割移行する。
 const LEGACY_DATASET_DIRECTORY_NAME = ".TickTockTome";
@@ -109,7 +111,9 @@ function normalizeSharedSettings(saved = {}) {
   const characterSpeed = CHARACTER_SPEEDS.includes(saved.characterSpeed) ? saved.characterSpeed : 150;
   // PopNote!のメモを本体にも表示するか。null は未回答（PopNote!のデータが見つかったときに尋ねる）。
   const showPopNoteMemos = typeof saved.showPopNoteMemos === "boolean" ? saved.showPopNoteMemos : null;
-  return { theme, themeMode, batteryColors, fontPreset, hiddenTagIds, illumination, characterSpeed, showPopNoteMemos };
+  // Pastephantから残したメモも同じく。
+  const showPastephantMemos = typeof saved.showPastephantMemos === "boolean" ? saved.showPastephantMemos : null;
+  return { theme, themeMode, batteryColors, fontPreset, hiddenTagIds, illumination, characterSpeed, showPopNoteMemos, showPastephantMemos };
 }
 
 function normalizeLocalLlm(saved) {
@@ -169,6 +173,10 @@ function popnoteDirectoryFor(basePath) {
   return path.join(kobitoDirectoryFor(basePath), POPNOTE_DIRECTORY_NAME);
 }
 
+function pastephantDirectoryFor(basePath) {
+  return path.join(kobitoDirectoryFor(basePath), PASTEPHANT_DIRECTORY_NAME);
+}
+
 function tagsFileFor(basePath) {
   return path.join(kobitoDirectoryFor(basePath), TAGS_DIRECTORY_NAME, "tags.json");
 }
@@ -184,4 +192,4 @@ function activePaths(machinePaths = pathsFor()) {
   return pathsFor(machinePaths.dataDirectory, settings.legacy?.contentDirectory || machinePaths.dataDirectory);
 }
 
-module.exports = { APP_DATA_DIRECTORY_NAME, CHARACTER_SPEEDS, DATASET_DIRECTORY_NAME, DEFAULT_BATTERY_COLORS, LEGACY_DATASET_DIRECTORY_NAME, POPNOTE_DIRECTORY_NAME, TAGS_DIRECTORY_NAME, activePaths, databasePathIn, datasetDirectoryFor, kobitoDirectoryFor, legacyDatasetDirectoryFor, popnoteDirectoryFor, tagsFileFor, defaultDataDirectory, ensurePrivateDirectories, loadSettings, machineRecord, normalizeLocalLlm, normalizeSharedSettings, pathsFor, readJsonIfPresent, writeJsonAtomic };
+module.exports = { APP_DATA_DIRECTORY_NAME, CHARACTER_SPEEDS, DATASET_DIRECTORY_NAME, DEFAULT_BATTERY_COLORS, LEGACY_DATASET_DIRECTORY_NAME, PASTEPHANT_DIRECTORY_NAME, POPNOTE_DIRECTORY_NAME, TAGS_DIRECTORY_NAME, activePaths, databasePathIn, datasetDirectoryFor, kobitoDirectoryFor, legacyDatasetDirectoryFor, pastephantDirectoryFor, popnoteDirectoryFor, tagsFileFor, defaultDataDirectory, ensurePrivateDirectories, loadSettings, machineRecord, normalizeLocalLlm, normalizeSharedSettings, pathsFor, readJsonIfPresent, writeJsonAtomic };

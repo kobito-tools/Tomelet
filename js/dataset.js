@@ -122,7 +122,7 @@ function settingsCard(bootstrap) {
   const info = bootstrap.dataset || {};
   const unresolved = info.unresolved || [];
   const relink = unresolved.length ? `<div class="dataset-relink"><h3>要再リンク <small>${unresolved.length}件</small></h3><p>基準パスの外を指しているため開けない項目です。基準パス内の同じファイルを選び直してください。</p>${unresolved.map((item) => `<div class="simple-row"><span><strong>${esc(item.name)}</strong><small>${esc(kindNames[item.kind] || item.kind)} · 旧${esc(item.rootId)}/${esc(item.relativePath)}</small></span><button class="secondary" data-dataset-relink="${esc(item.kind)}" data-id="${esc(item.id)}">再リンク</button></div>`).join("")}</div>` : "";
-  return `<section class="settings-card dataset-settings"><h2>基準パス</h2><p>書籍・文書・ファイルは、すべてこの基準パスからの相対パスで管理します。主要データは直下の「${esc(info.directoryName || ".kobito-tools")}」に保存します。</p><div class="dataset-summary"><form class="dataset-id-form" data-dataset-id-form><label><span>ID</span><input name="datasetId" required maxlength="60" value="${esc(info.id)}"></label><button class="secondary">IDを保存</button></form><div><span>場所</span><code class="dataset-path">${esc(info.basePath)}</code></div></div><div class="dataset-actions"><button class="new-button" data-dataset-choose>別の基準パスへ切替・新規作成</button></div>${popnoteSetting(bootstrap)}${relink}</section>`;
+  return `<section class="settings-card dataset-settings"><h2>基準パス</h2><p>書籍・文書・ファイルは、すべてこの基準パスからの相対パスで管理します。主要データは直下の「${esc(info.directoryName || ".kobito-tools")}」に保存します。</p><div class="dataset-summary"><form class="dataset-id-form" data-dataset-id-form><label><span>ID</span><input name="datasetId" required maxlength="60" value="${esc(info.id)}"></label><button class="secondary">IDを保存</button></form><div><span>場所</span><code class="dataset-path">${esc(info.basePath)}</code></div></div><div class="dataset-actions"><button class="new-button" data-dataset-choose>別の基準パスへ切替・新規作成</button></div>${popnoteSetting(bootstrap)}${pastephantSetting(bootstrap)}${relink}</section>`;
 }
 
 // PopNote!のメモ（.kobito-tools/PopNote/）を本体のカレンダー・検索にも表示するか。
@@ -131,6 +131,20 @@ function popnoteSetting(bootstrap) {
   if (!popnote.detected && popnote.show == null) return "";
   const shown = popnote.show === true;
   return `<div class="dataset-popnote"><h3>PopNote!のメモ</h3><p>${shown ? "PopNote!のメモを、カレンダー・検索・ファイルにも表示しています（編集はPopNote!で行います）。" : "PopNote!のメモは、この画面には表示していません。"}</p><button class="secondary" data-popnote-show="${shown ? "false" : "true"}">${shown ? "表示しない" : "本アプリでも表示する"}</button></div>`;
+}
+
+// Pastephant（クリップボード履歴）から残した日ごとのメモ（.kobito-tools/Pastephant/）も表示するか。
+function pastephantSetting(bootstrap) {
+  const pastephant = bootstrap.pastephant || {};
+  if (!pastephant.detected && pastephant.show == null) return "";
+  const shown = pastephant.show === true;
+  return `<div class="dataset-popnote"><h3>Pastephantのクリップ</h3><p>${shown ? "Pastephantから残したクリップ（日ごとのメモ）を、カレンダー・検索にも表示しています。" : "Pastephantから残したクリップは、この画面には表示していません。"}</p><button class="secondary" data-pastephant-show="${shown ? "false" : "true"}">${shown ? "表示しない" : "本アプリでも表示する"}</button></div>`;
+}
+
+async function savePastephantMemos(show) {
+  const bootstrap = window.__tickTockTomeBootstrap;
+  await api.updatePastephantMemos({ revision: bootstrap.settingsRevision, show });
+  location.reload();
 }
 
 async function savePopNoteMemos(show) {
@@ -148,12 +162,23 @@ async function askPopNoteMemos(bootstrap) {
   try { await savePopNoteMemos(show); } catch (error) { window.TickTockTomeDialog.alert(error.message); }
 }
 
+// Pastephantのデータも同じく一度だけ尋ねる（PopNote!を先に尋ね、答えて読み込み直したあとに尋ねる）。
+let pastephantAsked = false;
+async function askCompanionMemos(bootstrap) {
+  if (bootstrap.popnote?.detected && bootstrap.popnote.show == null) return askPopNoteMemos(bootstrap);
+  if (pastephantAsked || !bootstrap.pastephant?.detected || bootstrap.pastephant.show != null) return;
+  pastephantAsked = true;
+  const show = await window.TickTockTomeDialog.confirm("Pastephant（クリップボード履歴）から残したクリップが確認されました。本アプリ上でも表示しますか？", { okLabel: "表示する", cancelLabel: "表示しない" });
+  try { await savePastephantMemos(show); } catch (error) { window.TickTockTomeDialog.alert(error.message); }
+}
+
 document.addEventListener("click", async (event) => {
   const menu = document.querySelector(".dataset-menu");
   if (menu && !menu.hidden && !event.target.closest(".dataset-switcher")) menu.hidden = true;
-  const target = event.target.closest("[data-dataset-menu],[data-dataset-switch],[data-dataset-forget],[data-dataset-choose],[data-dataset-retry],[data-dataset-force],[data-dataset-relink],[data-popnote-show]");
+  const target = event.target.closest("[data-dataset-menu],[data-dataset-switch],[data-dataset-forget],[data-dataset-choose],[data-dataset-retry],[data-dataset-force],[data-dataset-relink],[data-popnote-show],[data-pastephant-show]");
   if (!target) return;
   event.preventDefault();
+  if (target.dataset.pastephantShow) { try { await savePastephantMemos(target.dataset.pastephantShow === "true"); } catch (error) { window.TickTockTomeDialog.alert(error.message); } return; }
   if (target.dataset.popnoteShow) { try { await savePopNoteMemos(target.dataset.popnoteShow === "true"); } catch (error) { window.TickTockTomeDialog.alert(error.message); } return; }
   const known = (key) => (window.__tickTockTomeBootstrap?.knownDatasets || []).find((entry) => entry.key === key);
   if (target.hasAttribute("data-dataset-menu")) { if (menu) menu.hidden = !menu.hidden; return; }
@@ -193,5 +218,5 @@ document.addEventListener("submit", async (event) => {
   } catch (error) { window.TickTockTomeDialog.alert(error.message); }
 }, true);
 
-window.TickTockTomeDataset = Object.freeze({ renderSetup, settingsCard, switcher, chooseBasePath, askPopNoteMemos });
+window.TickTockTomeDataset = Object.freeze({ renderSetup, settingsCard, switcher, chooseBasePath, askPopNoteMemos, askCompanionMemos });
 })();

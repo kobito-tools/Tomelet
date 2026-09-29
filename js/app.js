@@ -813,7 +813,7 @@ async function initialize(view = "dashboard") {
   if (view === "settings") state.trash = (await api.trash()).items;
   state.view = view;
   render();
-  window.TickTockTomeDataset.askPopNoteMemos(state.bootstrap);
+  window.TickTockTomeDataset.askCompanionMemos(state.bootstrap);
   if(state.bootstrap.localLlm?.enabled&&state.bootstrap.localLlm.analysisMode==='auto'&&!window.__tickTockTomeAutoAnalysisStarted){window.__tickTockTomeAutoAnalysisStarted=true;setTimeout(()=>api.autoDailyAnalysis().catch(()=>{}),1200);}
 }
 

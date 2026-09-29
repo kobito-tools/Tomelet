@@ -65,6 +65,7 @@ window.TickTockTomeApi = Object.freeze({
   updateLanguage: (value) => request("/api/v1/settings/language", { method: "PUT", body: JSON.stringify(value) }),
   updateMotion: (value) => request("/api/v1/settings/motion", { method: "PUT", body: JSON.stringify(value) }),
   updatePopNoteMemos: (value) => request("/api/v1/settings/popnote-memos", { method: "PUT", body: JSON.stringify(value) }),
+  updatePastephantMemos: (value) => request("/api/v1/settings/pastephant-memos", { method: "PUT", body: JSON.stringify(value) }),
   updateLocalLlm: (value) => request("/api/v1/settings/local-llm", { method: "PUT", body: JSON.stringify(value) }),
   referenceFile: (value) => request("/api/v1/files:reference", { method: "POST", body: JSON.stringify(value) }),
   extractLibraryMetadata: (value) => request("/api/v1/library:extract-metadata", { method: "POST", body: JSON.stringify(value) }),
