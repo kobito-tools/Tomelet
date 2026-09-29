@@ -25,29 +25,42 @@ Tomelet は、日記・時間割・Todo・関連ファイルを一括管理す�
 
 ## 動作環境
 
-- macOS 12 以降、または Windows 10 / 11
-- [Node.js](https://nodejs.org/) 22.5 以降
-- macOS では Xcode Command Line Tools（`Tomelet.app` と常駐タイマーの作成に使用。ターミナルで `xcode-select --install` を実行して導入します）
+- macOS 12 以降（Apple Silicon / Intel）
+- Windows 10 / 11 と [Node.js](https://nodejs.org/) 22.5 以降
+
+macOS 版は Node.js を同梱しているため、ほかに入れるものはありません。
 
 ## ダウンロード
 
-[Releases](../../releases/latest) ページの「Assets」から `Source code (zip)` をダウンロードし、展開します。
+[Releases](../../releases/latest) ページの「Assets」からダウンロードします。`x.y.z` にはバージョン番号が入ります。
 
-展開したフォルダは、ダウンロードフォルダではなく、今後も置いておく場所（例: ホームフォルダの `Applications` や `Tomelet`）へ移動してください。Tomelet はこのフォルダから起動します。
+| | ファイル |
+|---|---|
+| macOS | `Tomelet_x.y.z_universal.dmg` |
+| Windows | `Source code (zip)` |
 
 ## インストール
 
 ### macOS
 
-1. 展開したフォルダの `Tomelet-Setup.command` をダブルクリックします。
-2. 「開発元を確認できない」などの警告が表示された場合は、警告を閉じ、Finder で `Tomelet-Setup.command` を右クリックして「開く」を選びます。
-3. セットアップが終わると、同じフォルダに `Tomelet.app` ができます。
+1. ダウンロードした `.dmg` ファイルを開き、表示された `Tomelet.app` を Applications フォルダにドラッグします。
+2. アプリケーションフォルダから Tomelet を起動します。
 
-`Tomelet.app` はフォルダ内に置いたまま使います。Dock に追加しておくと便利です。フォルダを移動した場合は、もう一度 `Tomelet-Setup.command` を実行してください。
+本アプリは Apple の公証を受けていないため、初回起動時に「開発元を確認できません」などの警告が表示されます。その場合は警告を閉じ、「システム設定」→「プライバシーとセキュリティ」を開いて、画面下部の「このまま開く」をクリックしてください。2 回目以降は通常どおり起動できます。
+
+「壊れているため開けません」と表示される場合は、ターミナルで次のコマンドを実行してから、再度起動してください。
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Tomelet.app
+```
+
+ソースから作る場合は、このリポジトリをクローンして `Tomelet-Setup.command` を実行します（Node.js 22.5 以降と Xcode Command Line Tools が必要です。詳しくは [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)）。
 
 ### Windows
 
-1. 展開したフォルダの `Tomelet-Setup.cmd` をダブルクリックします。
+`Source code (zip)` を展開し、フォルダを今後も置いておく場所（例: ホームフォルダの `Tomelet`）へ移動してください。Tomelet はこのフォルダから起動します。
+
+1. フォルダの `Tomelet-Setup.cmd` をダブルクリックします。
 2. 「Windows によって PC が保護されました」と表示された場合は、「詳細情報」をクリックしてから「実行」をクリックします。
 
 ## 使い方
@@ -56,8 +69,8 @@ Tomelet は、日記・時間割・Todo・関連ファイルを一括管理す�
 
 | | macOS | Windows |
 |---|---|---|
-| 起動 | `Tomelet.app`（または `Tomelet.command`） | `Tomelet.cmd` |
-| 終了 | `Tomelet.app` を終了（または `Tomelet-Stop.command`） | `Tomelet-Stop.cmd` |
+| 起動 | `Tomelet.app` | `Tomelet.cmd` |
+| 終了 | `Tomelet.app` を終了 | `Tomelet-Stop.cmd` |
 
 Windows ではブラウザで画面が開きます（既定は `http://localhost:3174/`）。
 
@@ -111,18 +124,18 @@ Windows ではブラウザで画面が開きます（既定は `http://localhost
 ## アップデート
 
 1. Tomelet を終了します。
-2. 新しい版を[ダウンロード](#ダウンロード)して展開し、古いフォルダと置き換えます。
-3. `Tomelet-Setup.command`（Windows では `Tomelet-Setup.cmd`）を実行します。
+2. 新しい版を[ダウンロード](#ダウンロード)します。
+3. macOS では、`.dmg` の `Tomelet.app` を Applications フォルダにドラッグして置き換えます。Windows では、展開したフォルダで古いフォルダを置き換え、`Tomelet-Setup.cmd` を実行します。
 
 データは基準パスにあるため、アップデートしても消えません。
 
 ## トラブルシューティング
 
-### セットアップの画面がすぐ閉じる・「node が見つからない」と表示される
+### セットアップの画面がすぐ閉じる・「node が見つからない」と表示される（Windows）
 
-Node.js 22.5 以降がインストールされているか確認してください。インストールした直後は、ターミナル（Windows ではコマンドプロンプト）を開き直してから再度実行してください。
+Node.js 22.5 以降がインストールされているか確認してください。インストールした直後は、コマンドプロンプトを開き直してから再度実行してください。
 
-### 「macOSアプリの生成に失敗しました」と表示される（macOS）
+### 「macOSアプリの生成に失敗しました」と表示される（ソースから作る場合）
 
 Xcode Command Line Tools が必要です。ターミナルで `xcode-select --install` を実行してから、もう一度 `Tomelet-Setup.command` を実行してください。
 

@@ -35,7 +35,12 @@ node scripts/setup.js          # 連携トークンの用意、DBの検査、mac
 node scripts/setup.js --check  # 設定の確認だけ（アプリは作り直さない）
 npm start                      # サーバーを起動（既定は http://localhost:3174/）
 npm test                       # テスト
+npm run package:mac            # Releases 用の dist/Tomelet_<版>_universal.dmg を作成（macOS）
 ```
+
+`npm run package:mac`（`tools/package-macos-release.js`）は、Node.js や Xcode の無い Mac でも動く `Tomelet.app` を作ります。`.app` の中に、コミット済みのソース（`git archive`）、nodejs.org の公式ビルドから作ったユニバーサル版の Node.js（ハッシュを照合し、`.build/node/` に保存して再利用）、ビルド済みの常駐タイマーを入れます。版番号は `package.json` の `version` です。同梱する Node.js は、macOS 12 に対応する 22 系です（24 系は macOS 13.5 以上が必要）。
+
+`Tomelet-Setup` で作る `.app` は、このフォルダと手元の Node.js を Info.plist に絶対パスで記録します。配布用の `.app` は `.app` からの相対パス（`Contents/Resources/app`、`Contents/MacOS/node`）を記録します。PopNote! はこの2つのキーから本体を探すため、どちらの形にも対応しています。
 
 旧名 DailyLog で使っていた場合は、新しい名前の領域が無い限り、既存の `DailyLog` フォルダと `dailylog.sqlite3` をそのまま使います。環境変数も旧名の `DAILYLOG_DATA_DIR`、`DAILYLOG_PORT` を引き続き読み取ります。
 
